@@ -28,6 +28,11 @@
   <div id="addressLine" class="small" style="margin:4px 0 15px">Find your household schedule to get started.</div>
   <div id="binList" class="empty">Your bins will appear here once you've added an address or loaded the demo schedule.</div>
  </div>
+ <div class="card"><div class="sectionhead"><h2>Your households</h2><span class="small" id="profileCount">1 saved</span></div>
+  <div class="field"><label for="profileSelect">Active household</label><select id="profileSelect" onchange="switchProfile(this.value)"></select></div>
+  <div class="row"><button class="btn" onclick="addProfile()">＋ Add household</button><button class="btn secondary" onclick="deleteProfile()">Delete active</button></div>
+  <div class="tiny" style="margin-top:10px">Each household keeps its own address, sample/verified schedule and reminder preferences on this device.</div>
+ </div>
  <div class="card"><div class="sectionhead"><h2>Quick reminder</h2><span class="small" id="reminderLabel">7:00 pm</span></div><div style="font-size:14px">We'll help you remember the evening before collection.</div><div class="notice"><strong>Prototype note:</strong> This demo can save your preferences on this device. It does not yet send real push notifications or verify council collection data automatically.</div><button class="btn secondary" style="margin-top:13px" onclick="showTab('reminders')">Set reminder preferences</button></div>
 </section>
 <section id="setup" class="hidden">
@@ -57,25 +62,103 @@
  <div class="card"><h2 style="font-size:16px;margin-top:0">What a reminder looks like</h2><div id="preview" class="notice" style="font-size:14px">🗑️ <strong>Bins Out:</strong> Put your collection bins out tonight. Check your next collection below.</div></div>
 </section>
 </main>
-<div class="footer">Bins Out · Prototype 0.1 · Built for household testing<br>Always confirm collection dates with your local authority.</div>
+<div class="footer">Bins Out · Prototype 0.4 · Multiple household testing build<br>Sample schedules are not real collection data. Always confirm dates with your local authority.</div>
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <div id="modalBack" class="modalback hidden" onclick="if(event.target===this)closeModal()"><div class="modal"><h2 id="modalTitle">Reminder preview</h2><p id="modalText"></p><button class="btn" onclick="closeModal()">Got it</button></div></div>
 <script>
 const $=id=>document.getElementById(id);
 const demoSchedule={kind:"demo",dateOffset:1,bins:[{name:"Recycling",color:"blue",waste:"Paper, card & cans",emoji:"♻"},{name:"General waste",color:"grey",waste:"Non-recyclable rubbish",emoji:"🗑️"},{name:"Food waste",color:"green",waste:"Food scraps",emoji:"🍃"}]};
-let state={address:null,schedule:null,reminders:{time:"19:00",enabled:true,details:true}};
-function load(){try{const s=JSON.parse(localStorage.getItem("binsout-v1")||"{}");state={...state,...s};if(state.address){$("house").value=state.address.house||"";$("postcode").value=state.address.postcode||"";$("area").value=state.address.area||"";$("country").value=state.address.country||"GB";$("providerUrl").value=state.address.providerUrl||"";}if(state.reminders){$("time").value=state.reminders.time||"19:00";$("enabled").checked=state.reminders.enabled!==false;$("details").checked=state.reminders.details!==false;}render();}catch(e){console.warn(e)}}
-function persist(){localStorage.setItem("binsout-v1",JSON.stringify(state))}
+const defaultReminders={time:"19:00",enabled:true,details:true};
+let state={profiles:[],activeProfileId:null};
+function makeId(){return "hh-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,7)}
+function activeProfile(){return state.profiles.find(p=>p.id===state.activeProfileId)||state.profiles[0]||null}
+function ensureProfiles(){
+  if(!Array.isArray(state.profiles))state.profiles=[];
+  if(!state.profiles.length){
+    const oldAddress=state.address||null;
+    state.profiles=[{id:makeId(),name:oldAddress?[oldAddress.house,oldAddress.postcode].filter(Boolean).join(" · "):"My household",address:oldAddress,schedule:state.schedule||null,reminders:{...defaultReminders,...(state.reminders||{})}}];
+    state.activeProfileId=state.profiles[0].id;
+  }
+  if(!state.activeProfileId||!state.profiles.some(p=>p.id===state.activeProfileId))state.activeProfileId=state.profiles[0].id;
+  state.profiles=state.profiles.map(p=>({...p,name:p.name||"My household",address:p.address||null,schedule:p.schedule||null,reminders:{...defaultReminders,...(p.reminders||{})}}));
+  syncLegacy();
+}
+function syncLegacy(){const p=activeProfile();state.address=p?.address||null;state.schedule=p?.schedule||null;state.reminders={...defaultReminders,...(p?.reminders||{})}}
+function persist(){syncLegacy();localStorage.setItem("binsout-v1",JSON.stringify(state))}
+function load(){
+  try{
+    const saved=JSON.parse(localStorage.getItem("binsout-v1")||"{}");
+    state={...saved};
+    ensureProfiles();
+    loadActiveIntoForm();
+    render();
+  }catch(e){console.warn(e);state={profiles:[],activeProfileId:null};ensureProfiles();loadActiveIntoForm();render()}
+}
+function loadActiveIntoForm(){
+  const p=activeProfile(); if(!p)return;
+  const a=p.address||{};
+  $("house").value=a.house||"";$("postcode").value=a.postcode||"";$("area").value=a.area||"";$("country").value=a.country||"GB";$("providerUrl").value=a.providerUrl||"";
+  const r={...defaultReminders,...(p.reminders||{})};
+  $("time").value=r.time||"19:00";$("enabled").checked=r.enabled!==false;$("details").checked=r.details!==false;
+}
+function refreshProfileSelect(){
+  const sel=$("profileSelect"); if(!sel)return;
+  const p=activeProfile();
+  sel.innerHTML=state.profiles.map(x=>`<option value="${safe(x.id)}" ${x.id===p?.id?"selected":""}>${safe(x.name||"My household")}</option>`).join("");
+  $("profileCount").textContent=`${state.profiles.length} saved`;
+  $("profileSelect").disabled=state.profiles.length<2;
+}
 function showTab(tab){document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));["home","setup","reminders"].forEach(id=>$(id).classList.toggle("hidden",id!==tab));}
 document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>showTab(b.dataset.tab)));
-function saveAddress(){let house=$("house").value.trim(),postcode=$("postcode").value.trim();if(!house||!postcode){toast("Add both a house number/name and postcode first.");return}state.address={house,postcode,area:$("area").value.trim(),country:$("country").value,providerUrl:$("providerUrl").value.trim()};state.schedule=null;persist();render();showTab("home");toast("Address saved on this device. Add a verified schedule to replace the demo.");}
-function loadDemo(){state.schedule={...demoSchedule,confirmed:false};persist();render();showTab("home");toast("Demo schedule loaded. This is sample data, not your real collection.");}
-function render(){let a=state.address,s=state.schedule;$("dataStatus").textContent=s&&s.confirmed?"VERIFIED DATA":"DEMO SCHEDULE";if(a){$("addressLine").textContent=[a.house,a.postcode,a.area].filter(Boolean).join(", ");}else{$("addressLine").textContent="Find your household schedule to get started."}
-if(s&&s.bins&&s.bins.length){let d=new Date();d.setDate(d.getDate()+(s.dateOffset||1));$("nextDate").textContent=d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});$("binList").className="bins";$("binList").innerHTML=s.bins.map(b=>`<div class="bin ${safe(b.color)}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name)}</strong><br><small>${safe(b.waste||"Collection")}</small></div></div>`).join("");}else{$("nextDate").textContent="Add your address";$("binList").className="empty";$("binList").innerHTML='No collection schedule connected yet.<br><button class="btn secondary" style="margin-top:12px" onclick="loadDemo()">Load sample schedule</button>'}
-$("reminderLabel").textContent=state.reminders.time||"7:00 pm";updatePreview();}
+function switchProfile(id){
+  if(!state.profiles.some(p=>p.id===id))return;
+  state.activeProfileId=id;syncLegacy();persist();loadActiveIntoForm();render();toast("Switched household.");
+}
+function addProfile(){
+  const p={id:makeId(),name:"New household",address:null,schedule:null,reminders:{...defaultReminders}};
+  state.profiles.push(p);state.activeProfileId=p.id;persist();loadActiveIntoForm();render();showTab("setup");$("house").focus();toast("New household created. Add its address.");
+}
+function deleteProfile(){
+  if(state.profiles.length<=1){toast("Keep at least one household. You can edit its address instead.");return}
+  const p=activeProfile();if(!confirm(`Delete "${p?.name||"this household"}" and its saved settings from this device?`))return;
+  state.profiles=state.profiles.filter(x=>x.id!==p.id);state.activeProfileId=state.profiles[0].id;syncLegacy();persist();loadActiveIntoForm();render();toast("Household deleted.");
+}
+function saveAddress(){
+  let house=$("house").value.trim(),postcode=$("postcode").value.trim();
+  if(!house||!postcode){toast("Add both a house number/name and postcode first.");return}
+  const p=activeProfile();
+  p.address={house,postcode,area:$("area").value.trim(),country:$("country").value,providerUrl:$("providerUrl").value.trim()};
+  p.name=[house,postcode].filter(Boolean).join(" · ")||"My household";
+  p.schedule=null;
+  persist();render();showTab("home");toast("Address saved to this household. No real collection schedule is connected yet.");
+}
+function loadDemo(){
+  const p=activeProfile();if(!p)return;
+  p.schedule={...demoSchedule,confirmed:false,bins:demoSchedule.bins.map(b=>({...b}))};
+  persist();render();showTab("home");toast("Sample schedule loaded for this household only.");
+}
+function render(){
+  syncLegacy();
+  const p=activeProfile(),a=p?.address,s=p?.schedule;
+  refreshProfileSelect();
+  $("dataStatus").textContent=s&&s.confirmed?"VERIFIED DATA":s?"DEMO ONLY":"NO DATA";
+  $("addressLine").textContent=a?[a.house,a.postcode,a.area].filter(Boolean).join(", "):"Find your household schedule to get started.";
+  if(s&&s.bins&&s.bins.length){
+    let d=new Date();d.setDate(d.getDate()+(s.dateOffset||1));
+    $("nextDate").textContent=s.confirmed?d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}):"Sample only — not your collection date";
+    $("binList").className="bins";
+    $("binList").innerHTML=s.bins.map(b=>`<div class="bin ${safe(b.color)}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name)}</strong><br><small>${safe(b.waste||"Collection")}</small></div></div>`).join("");
+  }else{
+    $("nextDate").textContent=a?"Schedule not connected":"Add your address";
+    $("binList").className="empty";
+    $("binList").innerHTML='No verified collection schedule is connected to this household yet. The address and reminder preferences are saved, but connect an official collection source before relying on dates.<br><button class="btn secondary" style="margin-top:12px" onclick="showTab(\'setup\')">Review address</button><button class="btn secondary" style="margin-top:12px" onclick="loadDemo()">Preview sample bins</button>';
+  }
+  $("reminderLabel").textContent=state.reminders.time||"7:00 pm";
+  updatePreview();
+}
 function safe(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
-function saveReminders(){state.reminders={time:$("time").value,enabled:$("enabled").checked,details:$("details").checked};persist();render();toast("Reminder preferences saved on this device.");}
+function saveReminders(){const p=activeProfile();p.reminders={time:$("time").value,enabled:$("enabled").checked,details:$("details").checked};persist();render();toast("Reminder preferences saved for this household.");}
 function updatePreview(){let time=state.reminders.time||"19:00";let [h,m]=time.split(":").map(Number);let fmt=new Date(2000,0,1,h,m).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});let bins=state.schedule?.bins||[];let suffix=state.reminders.details&&bins.length?" Tomorrow: "+bins.map(b=>b.name).join(", ")+".":"";$("preview").innerHTML=`🗑️ <strong>Bins Out (${safe(fmt)}):</strong> Put your collection bins out tonight.${safe(suffix)}`;}
 function testReminder(){updatePreview();$("modalTitle").textContent="Your reminder preview";$("modalText").textContent=$("preview").innerText; $("modalBack").classList.remove("hidden");}
 function closeModal(){$("modalBack").classList.add("hidden")}

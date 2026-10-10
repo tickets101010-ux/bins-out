@@ -2,7 +2,7 @@ BINS OUT — USER TEST PROTOTYPE 0.1
 
 WHAT WORKS
 - Mobile-first app-like interface
-- Installable PWA manifest and service worker for offline app shell
+- PWA manifest with Android-sized PNG icons and service worker for offline app shell
 - Address form (house/name, postcode/ZIP, country, area)
 - Stores address and reminder preferences in this browser on this device
 - Demo schedule and reminder preview

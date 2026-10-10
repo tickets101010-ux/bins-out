@@ -43,6 +43,11 @@
   <button class="btn" onclick="saveAddress()">Save address</button>
   <div class="notice"><strong>Privacy first:</strong> The prototype stores this address only in your browser's local storage. Don't enter sensitive information on a shared device.</div>
  </div>
+ <div class="card">
+  <div class="sectionhead"><h2>Saved addresses</h2><span class="status" id="savedAddressCount">0 saved</span></div>
+  <p class="small" style="margin-top:0">Your saved properties appear here. Tap Use to switch the active household, or Edit to load its details into the form.</p>
+  <div id="savedAddressList" class="empty">No addresses saved yet. Add one above.</div>
+ </div>
  <div class="card"><div class="sectionhead"><h2>Connect real collection data</h2><span class="status">Where available</span></div>
  <p style="font-size:13px;color:var(--muted);margin-top:0">Collection data is managed locally by councils and service providers. There isn't one reliable worldwide database. Use the official service for your area to confirm dates and bin types.</p>
  <div class="field"><label for="providerUrl">Official collection lookup URL (optional)</label><input id="providerUrl" type="url" placeholder="https://your-council.gov/..."></div>
@@ -62,7 +67,7 @@
  <div class="card"><h2 style="font-size:16px;margin-top:0">What a reminder looks like</h2><div id="preview" class="notice" style="font-size:14px">🗑️ <strong>Bins Out:</strong> Put your collection bins out tonight. Check your next collection below.</div></div>
 </section>
 </main>
-<div class="footer">Bins Out · Prototype 0.4 · Multiple household testing build<br>Sample schedules are not real collection data. Always confirm dates with your local authority.</div>
+<div class="footer">Bins Out · Prototype 0.5 · Saved address visibility build<br>Sample schedules are not real collection data. Always confirm dates with your local authority.</div>
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <div id="modalBack" class="modalback hidden" onclick="if(event.target===this)closeModal()"><div class="modal"><h2 id="modalTitle">Reminder preview</h2><p id="modalText"></p><button class="btn" onclick="closeModal()">Got it</button></div></div>
@@ -105,15 +110,55 @@ function loadActiveIntoForm(){
 function refreshProfileSelect(){
   const sel=$("profileSelect"); if(!sel)return;
   const p=activeProfile();
-  sel.innerHTML=state.profiles.map(x=>`<option value="${safe(x.id)}" ${x.id===p?.id?"selected":""}>${safe(x.name||"My household")}</option>`).join("");
+  sel.innerHTML=state.profiles.map(x=>`<option value="${safe(x.id)}" ${x.id===p?.id?"selected":""}>${safe(x.name||"My household")}${x.address?"":" (address needed)"}</option>`).join("");
   $("profileCount").textContent=`${state.profiles.length} saved`;
   $("profileSelect").disabled=state.profiles.length<2;
+  renderSavedAddresses();
+}
+function renderSavedAddresses(){
+  const list=$("savedAddressList"); if(!list)return;
+  const profiles=state.profiles.filter(p=>p.address);
+  $("savedAddressCount").textContent=`${profiles.length} saved`;
+  if(!profiles.length){list.className="empty";list.textContent="No addresses saved yet. Add one above.";return}
+  list.className="";
+  list.innerHTML=profiles.map(p=>{
+    const a=p.address, active=p.id===state.activeProfileId;
+    const address=[a.house,a.postcode,a.area].filter(Boolean).join(", ");
+    const schedule=p.schedule?.confirmed?"Verified schedule connected":p.schedule?"Demo schedule loaded":"No schedule connected";
+    return `<div style="border:1px solid var(--line);border-radius:15px;padding:13px;margin:9px 0;background:${active?"#f0f6e9":"#fff"}">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+       <div style="min-width:0;flex:1"><strong style="display:block;overflow-wrap:anywhere">${safe(address)}</strong><div class="small">${active?"✓ Currently selected":"Saved household"} · ${safe(schedule)}</div></div>
+       ${active?'<span class="status">ACTIVE</span>':""}
+      </div>
+      <div class="row" style="margin-top:10px">
+       <button class="btn secondary" onclick="useProfile('${safe(p.id)}')">${active?"Selected":"Use address"}</button>
+       <button class="btn secondary" onclick="editProfile('${safe(p.id)}')">Edit</button>
+      </div>
+      <button class="btn secondary" style="margin-top:8px;color:#9a3027;width:100%" onclick="deleteSpecificProfile('${safe(p.id)}')">Delete address</button>
+    </div>`;
+  }).join("");
 }
 function showTab(tab){document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));["home","setup","reminders"].forEach(id=>$(id).classList.toggle("hidden",id!==tab));}
 document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>showTab(b.dataset.tab)));
 function switchProfile(id){
   if(!state.profiles.some(p=>p.id===id))return;
   state.activeProfileId=id;syncLegacy();persist();loadActiveIntoForm();render();toast("Switched household.");
+}
+function useProfile(id){
+  if(!state.profiles.some(p=>p.id===id))return;
+  state.activeProfileId=id;persist();loadActiveIntoForm();render();showTab("home");toast("Address selected. Its own schedule and reminders are now active.");
+}
+function editProfile(id){
+  if(!state.profiles.some(p=>p.id===id))return;
+  state.activeProfileId=id;persist();loadActiveIntoForm();render();showTab("setup");$("house").focus();toast("Address loaded into the form. Save changes when finished.");
+}
+function deleteSpecificProfile(id){
+  const p=state.profiles.find(x=>x.id===id);if(!p)return;
+  if(state.profiles.length<=1){toast("You need to keep one household. You can edit its address instead.");return}
+  if(!confirm(`Delete the saved address "${[p.address?.house,p.address?.postcode].filter(Boolean).join(" ")}" and its schedule and reminders?`))return;
+  state.profiles=state.profiles.filter(x=>x.id!==id);
+  if(state.activeProfileId===id)state.activeProfileId=state.profiles[0].id;
+  persist();loadActiveIntoForm();render();toast("Saved address deleted.");
 }
 function addProfile(){
   const p={id:makeId(),name:"New household",address:null,schedule:null,reminders:{...defaultReminders}};
@@ -154,12 +199,13 @@ function render(){
     $("binList").className="empty";
     $("binList").innerHTML='No verified collection schedule is connected to this household yet. The address and reminder preferences are saved, but connect an official collection source before relying on dates.<br><button class="btn secondary" style="margin-top:12px" onclick="showTab(\'setup\')">Review address</button><button class="btn secondary" style="margin-top:12px" onclick="loadDemo()">Preview sample bins</button>';
   }
-  $("reminderLabel").textContent=state.reminders.time||"7:00 pm";
+  const activeReminder=activeProfile()?.reminders||defaultReminders;
+  $("reminderLabel").textContent=activeReminder.time||"19:00";
   updatePreview();
 }
 function safe(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function saveReminders(){const p=activeProfile();p.reminders={time:$("time").value,enabled:$("enabled").checked,details:$("details").checked};persist();render();toast("Reminder preferences saved for this household.");}
-function updatePreview(){let time=state.reminders.time||"19:00";let [h,m]=time.split(":").map(Number);let fmt=new Date(2000,0,1,h,m).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});let bins=state.schedule?.bins||[];let suffix=state.reminders.details&&bins.length?" Tomorrow: "+bins.map(b=>b.name).join(", ")+".":"";$("preview").innerHTML=`🗑️ <strong>Bins Out (${safe(fmt)}):</strong> Put your collection bins out tonight.${safe(suffix)}`;}
+function updatePreview(){const p=activeProfile();const r={...defaultReminders,...(p?.reminders||{})};const time=r.time||"19:00";let [h,m]=time.split(":").map(Number);let fmt=new Date(2000,0,1,h,m).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});const bins=p?.schedule?.bins||[];const suffix=r.details&&bins.length?" Collection bins in this profile: "+bins.map(b=>b.name).join(", ")+".":"";$("preview").innerHTML=`🗑️ <strong>Bins Out (${safe(fmt)}):</strong> ${r.enabled?"Reminder preference is ON.":"Reminder preference is OFF."}${safe(suffix)} <span style="display:block;margin-top:6px">Preview only — no notification has been scheduled or sent.</span>`;}
 function testReminder(){updatePreview();$("modalTitle").textContent="Your reminder preview";$("modalText").textContent=$("preview").innerText; $("modalBack").classList.remove("hidden");}
 function closeModal(){$("modalBack").classList.add("hidden")}
 function openProvider(){let u=$("providerUrl").value.trim();if(!u){toast("Add an official council or provider lookup URL first.");return}try{let url=new URL(u);if(!["http:","https:"].includes(url.protocol))throw 0;window.open(url.href,"_blank","noopener,noreferrer")}catch(e){toast("Please enter a valid https:// address.")}}

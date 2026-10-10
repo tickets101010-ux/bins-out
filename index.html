@@ -36,17 +36,17 @@
  <div class="card"><div class="sectionhead"><h2>Quick reminder</h2><span class="small" id="reminderLabel">7:00 pm</span></div><div style="font-size:14px">We'll help you remember the evening before collection.</div><div class="notice"><strong>Current status:</strong> Addresses and preferences are saved on this device. Automatic council-data connections and real background notifications are not active yet.</div><button class="btn secondary" style="margin-top:13px" onclick="showTab('reminders')">Set reminder preferences</button></div>
 </section>
 <section id="setup" class="hidden">
+ <div class="card">
+  <div class="sectionhead"><h2>Saved addresses</h2><span class="status" id="savedAddressCount">0 saved</span></div>
+  <p class="small" style="margin-top:0">Your saved properties appear here. Tap Use to switch the active household, or Edit to load its details into the form.</p>
+  <div id="savedAddressList" class="empty">No addresses saved yet. Add one above.</div>
+ </div>
  <div class="card"><div class="sectionhead"><h2>Find your household</h2><span class="small">UK homes only</span></div>
   <div class="field"><label for="country">Where in the UK is this property?</label><select id="country"><option value="England">England</option><option value="Scotland">Scotland</option><option value="Wales">Wales</option><option value="Northern Ireland">Northern Ireland</option></select></div>
   <div class="row"><div class="field"><label for="house">House number / name</label><input id="house" placeholder="e.g. 24 or Rose Cottage" autocomplete="address-line1"></div><div class="field"><label for="postcode">Postcode / ZIP</label><input id="postcode" placeholder="e.g. SW1A 1AA" autocomplete="postal-code"></div></div>
   <div class="field"><label for="area">Council / city (optional)</label><input id="area" placeholder="e.g. Westminster, London"></div>
   <button class="btn" onclick="saveAddress()">Save address</button>
   <div class="notice"><strong>Privacy first:</strong> The prototype stores this address only in your browser's local storage. Don't enter sensitive information on a shared device.</div>
- </div>
- <div class="card">
-  <div class="sectionhead"><h2>Saved addresses</h2><span class="status" id="savedAddressCount">0 saved</span></div>
-  <p class="small" style="margin-top:0">Your saved properties appear here. Tap Use to switch the active household, or Edit to load its details into the form.</p>
-  <div id="savedAddressList" class="empty">No addresses saved yet. Add one above.</div>
  </div>
  <div class="card"><div class="sectionhead"><h2>Connect real collection data</h2><span class="status">Where available</span></div>
  <p style="font-size:13px;color:var(--muted);margin-top:0">Collection dates are set by your local council. Choose the official starting point for the part of the UK where this property is located, then confirm the exact address and collection dates on the council website.</p>
@@ -57,6 +57,7 @@
  </div>
 </section>
 <section id="reminders" class="hidden">
+ <div class="card"><h2 style="font-size:16px;margin-top:0">What a reminder looks like</h2><div id="preview" class="notice" style="font-size:14px">🗑️ <strong>Bins Out:</strong> Put your collection bins out tonight. Check your next collection below.</div></div>
  <div class="card"><div class="sectionhead"><h2>Reminder settings</h2><span class="small">On this device</span></div>
  <div class="field"><label for="time">Reminder time</label><select id="time"><option value="17:00">5:00 pm</option><option value="18:00">6:00 pm</option><option value="19:00" selected>7:00 pm</option><option value="20:00">8:00 pm</option><option value="21:00">9:00 pm</option></select></div>
  <div class="switchrow"><div><strong>Evening-before reminder</strong><div class="small">Show reminder preferences in the app</div></div><input type="checkbox" id="enabled" checked></div>
@@ -65,7 +66,6 @@
  <button class="btn secondary" style="margin-top:12px" onclick="testReminder()">Preview reminder</button>
  <div class="notice">Browser reminders require notification permission and a reliable scheduling service. This prototype previews the reminder but does not send a background notification yet.</div>
  </div>
- <div class="card"><h2 style="font-size:16px;margin-top:0">What a reminder looks like</h2><div id="preview" class="notice" style="font-size:14px">🗑️ <strong>Bins Out:</strong> Put your collection bins out tonight. Check your next collection below.</div></div>
 </section>
 </main>
 <div class="footer">Bins Out · V4 · UK-first build<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#173d31">
-<meta name="description" content="Bins Out — a simple reminder for your next bin collection.">
+<meta name="description" content="Bins Out — UK household bin collection reminders.">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <title>Bins Out — Never miss bin day</title>
@@ -23,7 +23,7 @@
 <main>
 <section id="home">
  <div class="card">
-  <div class="sectionhead"><h2>Next collection</h2><span class="status" id="dataStatus">DEMO SCHEDULE</span></div>
+  <div class="sectionhead"><h2>Next collection</h2><span class="status" id="dataStatus">NO DATA</span></div>
   <div id="nextDate" style="font-size:26px;font-weight:850;letter-spacing:-.8px">Add your address</div>
   <div id="addressLine" class="small" style="margin:4px 0 15px">Find your household schedule to get started.</div>
   <div id="binList" class="empty">Your bins will appear here once you've added an address or loaded the demo schedule.</div>
@@ -31,13 +31,13 @@
  <div class="card"><div class="sectionhead"><h2>Your households</h2><span class="small" id="profileCount">1 saved</span></div>
   <div class="field"><label for="profileSelect">Active household</label><select id="profileSelect" onchange="switchProfile(this.value)"></select></div>
   <div class="row"><button class="btn" onclick="addProfile()">＋ Add household</button><button class="btn secondary" onclick="deleteProfile()">Delete active</button></div>
-  <div class="tiny" style="margin-top:10px">Each household keeps its own address, sample/verified schedule and reminder preferences on this device.</div>
+  <div class="tiny" style="margin-top:10px">Each household keeps its own UK address, schedule status and reminder preferences on this device.</div>
  </div>
- <div class="card"><div class="sectionhead"><h2>Quick reminder</h2><span class="small" id="reminderLabel">7:00 pm</span></div><div style="font-size:14px">We'll help you remember the evening before collection.</div><div class="notice"><strong>Prototype note:</strong> This demo can save your preferences on this device. It does not yet send real push notifications or verify council collection data automatically.</div><button class="btn secondary" style="margin-top:13px" onclick="showTab('reminders')">Set reminder preferences</button></div>
+ <div class="card"><div class="sectionhead"><h2>Quick reminder</h2><span class="small" id="reminderLabel">7:00 pm</span></div><div style="font-size:14px">We'll help you remember the evening before collection.</div><div class="notice"><strong>Current status:</strong> Addresses and preferences are saved on this device. Automatic council-data connections and real background notifications are not active yet.</div><button class="btn secondary" style="margin-top:13px" onclick="showTab('reminders')">Set reminder preferences</button></div>
 </section>
 <section id="setup" class="hidden">
- <div class="card"><div class="sectionhead"><h2>Find your household</h2><span class="small">Step 1 of 2</span></div>
-  <div class="field"><label for="country">Country or region</label><select id="country"><option value="GB">United Kingdom</option><option value="US">United States</option><option value="CA">Canada</option><option value="AU">Australia</option><option value="NZ">New Zealand</option><option value="IE">Ireland</option><option value="other">Other / international</option></select></div>
+ <div class="card"><div class="sectionhead"><h2>Find your household</h2><span class="small">UK homes only</span></div>
+  <div class="field"><label for="country">Where in the UK is this property?</label><select id="country"><option value="England">England</option><option value="Scotland">Scotland</option><option value="Wales">Wales</option><option value="Northern Ireland">Northern Ireland</option></select></div>
   <div class="row"><div class="field"><label for="house">House number / name</label><input id="house" placeholder="e.g. 24 or Rose Cottage" autocomplete="address-line1"></div><div class="field"><label for="postcode">Postcode / ZIP</label><input id="postcode" placeholder="e.g. SW1A 1AA" autocomplete="postal-code"></div></div>
   <div class="field"><label for="area">Council / city (optional)</label><input id="area" placeholder="e.g. Westminster, London"></div>
   <button class="btn" onclick="saveAddress()">Save address</button>
@@ -49,10 +49,11 @@
   <div id="savedAddressList" class="empty">No addresses saved yet. Add one above.</div>
  </div>
  <div class="card"><div class="sectionhead"><h2>Connect real collection data</h2><span class="status">Where available</span></div>
- <p style="font-size:13px;color:var(--muted);margin-top:0">Collection data is managed locally by councils and service providers. There isn't one reliable worldwide database. Use the official service for your area to confirm dates and bin types.</p>
- <div class="field"><label for="providerUrl">Official collection lookup URL (optional)</label><input id="providerUrl" type="url" placeholder="https://your-council.gov/..."></div>
- <button class="btn secondary" onclick="openProvider()">Open official lookup</button>
- <div class="tiny" style="margin-top:10px">This prototype does not claim that a postcode lookup is connected to a council API. A production release needs verified data integrations for each supported area.</div>
+ <p style="font-size:13px;color:var(--muted);margin-top:0">Collection dates are set by your local council. Choose the official starting point for the part of the UK where this property is located, then confirm the exact address and collection dates on the council website.</p>
+ <button class="btn secondary" onclick="openOfficialGuide()">Find my official council bin-day page</button>
+ <div class="field"><label for="providerUrl">Your council's collection page (optional)</label><input id="providerUrl" type="url" placeholder="Paste your council's bin collection URL"></div>
+ <button class="btn secondary" onclick="openProvider()">Open saved council page</button>
+ <div class="notice"><strong>Important:</strong> Opening an official page does not automatically connect its schedule to Bins Out. Until a council data connection is verified, the app will not invent collection dates.</div>
  </div>
 </section>
 <section id="reminders" class="hidden">
@@ -67,7 +68,7 @@
  <div class="card"><h2 style="font-size:16px;margin-top:0">What a reminder looks like</h2><div id="preview" class="notice" style="font-size:14px">🗑️ <strong>Bins Out:</strong> Put your collection bins out tonight. Check your next collection below.</div></div>
 </section>
 </main>
-<div class="footer">Bins Out · Prototype 0.5 · Saved address visibility build<br>Sample schedules are not real collection data. Always confirm dates with your local authority.</div>
+<div class="footer">Bins Out · V4 · UK-first build<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <div id="modalBack" class="modalback hidden" onclick="if(event.target===this)closeModal()"><div class="modal"><h2 id="modalTitle">Reminder preview</h2><p id="modalText"></p><button class="btn" onclick="closeModal()">Got it</button></div></div>
@@ -103,7 +104,7 @@ function load(){
 function loadActiveIntoForm(){
   const p=activeProfile(); if(!p)return;
   const a=p.address||{};
-  $("house").value=a.house||"";$("postcode").value=a.postcode||"";$("area").value=a.area||"";$("country").value=a.country||"GB";$("providerUrl").value=a.providerUrl||"";
+  $("house").value=a.house||"";$("postcode").value=a.postcode||"";$("area").value=a.area||"";const oldRegion=a.country||"England";$("country").value=["England","Scotland","Wales","Northern Ireland"].includes(oldRegion)?oldRegion:"England";$("providerUrl").value=a.providerUrl||"";
   const r={...defaultReminders,...(p.reminders||{})};
   $("time").value=r.time||"19:00";$("enabled").checked=r.enabled!==false;$("details").checked=r.details!==false;
 }
@@ -173,10 +174,16 @@ function saveAddress(){
   let house=$("house").value.trim(),postcode=$("postcode").value.trim();
   if(!house||!postcode){toast("Add both a house number/name and postcode first.");return}
   const p=activeProfile();
-  p.address={house,postcode,area:$("area").value.trim(),country:$("country").value,providerUrl:$("providerUrl").value.trim()};
+  const nextAddress={house,postcode,area:$("area").value.trim(),country:$("country").value,providerUrl:$("providerUrl").value.trim()};
+  const previous=p.address||{};
+  const addressChanged=house.toLowerCase()!==String(previous.house||"").toLowerCase()
+    ||postcode.replace(/\s+/g,"").toUpperCase()!==String(previous.postcode||"").replace(/\s+/g,"").toUpperCase()
+    ||nextAddress.country!==String(previous.country||"England");
+  p.address=nextAddress;
   p.name=[house,postcode].filter(Boolean).join(" · ")||"My household";
-  p.schedule=null;
-  persist();render();showTab("home");toast("Address saved to this household. No real collection schedule is connected yet.");
+  if(addressChanged)p.schedule=null;
+  persist();render();showTab("home");
+  toast(addressChanged?"Address saved. Check the official council page to confirm its schedule.":"Address details updated. Existing schedule status kept.");
 }
 function loadDemo(){
   const p=activeProfile();if(!p)return;
@@ -187,17 +194,17 @@ function render(){
   syncLegacy();
   const p=activeProfile(),a=p?.address,s=p?.schedule;
   refreshProfileSelect();
-  $("dataStatus").textContent=s&&s.confirmed?"VERIFIED DATA":s?"DEMO ONLY":"NO DATA";
-  $("addressLine").textContent=a?[a.house,a.postcode,a.area].filter(Boolean).join(", "):"Find your household schedule to get started.";
+  $("dataStatus").textContent=s&&s.confirmed?"VERIFIED DATA":s?"SAMPLE ONLY":"NO DATA";
+  $("addressLine").textContent=a?([a.house,a.postcode,a.area,a.country].filter(Boolean).join(", ")): "Add a UK address to get started.";
   if(s&&s.bins&&s.bins.length){
     let d=new Date();d.setDate(d.getDate()+(s.dateOffset||1));
     $("nextDate").textContent=s.confirmed?d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}):"Sample only — not your collection date";
     $("binList").className="bins";
     $("binList").innerHTML=s.bins.map(b=>`<div class="bin ${safe(b.color)}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name)}</strong><br><small>${safe(b.waste||"Collection")}</small></div></div>`).join("");
   }else{
-    $("nextDate").textContent=a?"Schedule not connected":"Add your address";
+    $("nextDate").textContent=a?"No verified collection dates yet":"Add your address";
     $("binList").className="empty";
-    $("binList").innerHTML='No verified collection schedule is connected to this household yet. The address and reminder preferences are saved, but connect an official collection source before relying on dates.<br><button class="btn secondary" style="margin-top:12px" onclick="showTab(\'setup\')">Review address</button><button class="btn secondary" style="margin-top:12px" onclick="loadDemo()">Preview sample bins</button>';
+    $("binList").innerHTML='No verified collection schedule is connected to this household yet. Your address and preferences are saved. Open the official council page to check your dates; Bins Out will not guess them.<br><button class="btn secondary" style="margin-top:12px" onclick="showTab(\'setup\')">Review address</button><button class="btn secondary" style="margin-top:12px" onclick="loadDemo()">Preview sample bins</button>';
   }
   const activeReminder=activeProfile()?.reminders||defaultReminders;
   $("reminderLabel").textContent=activeReminder.time||"19:00";
@@ -208,7 +215,17 @@ function saveReminders(){const p=activeProfile();p.reminders={time:$("time").val
 function updatePreview(){const p=activeProfile();const r={...defaultReminders,...(p?.reminders||{})};const time=r.time||"19:00";let [h,m]=time.split(":").map(Number);let fmt=new Date(2000,0,1,h,m).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});const bins=p?.schedule?.bins||[];const suffix=r.details&&bins.length?" Collection bins in this profile: "+bins.map(b=>b.name).join(", ")+".":"";$("preview").innerHTML=`🗑️ <strong>Bins Out (${safe(fmt)}):</strong> ${r.enabled?"Reminder preference is ON.":"Reminder preference is OFF."}${safe(suffix)} <span style="display:block;margin-top:6px">Preview only — no notification has been scheduled or sent.</span>`;}
 function testReminder(){updatePreview();$("modalTitle").textContent="Your reminder preview";$("modalText").textContent=$("preview").innerText; $("modalBack").classList.remove("hidden");}
 function closeModal(){$("modalBack").classList.add("hidden")}
-function openProvider(){let u=$("providerUrl").value.trim();if(!u){toast("Add an official council or provider lookup URL first.");return}try{let url=new URL(u);if(!["http:","https:"].includes(url.protocol))throw 0;window.open(url.href,"_blank","noopener,noreferrer")}catch(e){toast("Please enter a valid https:// address.")}}
+function openOfficialGuide(){
+  const region=$("country").value;
+  const routes={
+    "England":"https://www.gov.uk/rubbish-collection-day",
+    "Wales":"https://www.gov.uk/rubbish-collection-day",
+    "Scotland":"https://www.mygov.scot/bin-days",
+    "Northern Ireland":"https://www.nidirect.gov.uk/articles/bins-and-waste-collection"
+  };
+  window.open(routes[region]||routes["England"],"_blank","noopener,noreferrer");
+}
+function openProvider(){let u=$("providerUrl").value.trim();if(!u){openOfficialGuide();return}try{let url=new URL(u);if(!["http:","https:"].includes(url.protocol))throw 0;window.open(url.href,"_blank","noopener,noreferrer")}catch(e){toast("Please enter a valid https:// address.")}}
 let toastTimer;function toast(msg){$("toast").textContent=msg;$("toast").classList.remove("hidden");clearTimeout(toastTimer);toastTimer=setTimeout(()=>$("toast").classList.add("hidden"),3000)}
 if("serviceWorker" in navigator && location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});
 load();

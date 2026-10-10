@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#173d31">
+<meta name="description" content="Bins Out — a simple reminder for your next bin collection.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<title>Bins Out — Never miss bin day</title>
+<style>
+:root{--green:#173d31;--green2:#246149;--lime:#d7f36b;--paper:#f5f6ef;--ink:#1d2a25;--muted:#65736c;--line:#dfe5dc;--card:#fff;--shadow:0 12px 35px #173d3112}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select{font:inherit}button{cursor:pointer}.app{max-width:560px;margin:auto;min-height:100dvh;padding:0 18px 36px}.top{margin:0 -18px;padding:23px 22px 25px;background:var(--green);color:white;border-radius:0 0 26px 26px}.brand{display:flex;align-items:center;gap:11px}.logo{display:grid;place-items:center;width:44px;height:44px;background:var(--lime);color:var(--green);border-radius:14px;font-size:25px}.brandname{font-size:23px;font-weight:800;letter-spacing:-.7px}.tag{font-size:12px;color:#c9d8d0}.toprow{display:flex;justify-content:space-between;align-items:center}.pill{border:1px solid #ffffff55;border-radius:999px;padding:7px 10px;font-size:11px;color:#e6f1e9}.hero{padding:25px 2px 19px}.eyebrow{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);font-weight:800}.hero h1{font-size:32px;line-height:1.08;letter-spacing:-1.1px;margin:8px 0}.hero p{margin:9px 0 0;color:var(--muted)}.card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow)}.sectionhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:13px}.sectionhead h2{font-size:17px;margin:0;letter-spacing:-.3px}.small{font-size:12px;color:var(--muted)}.status{font-size:11px;border-radius:999px;padding:5px 9px;background:#edf5df;color:#41621e;font-weight:700}.bins{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.bin{border-radius:16px;padding:13px 8px 12px;color:white;min-height:128px;display:flex;flex-direction:column;justify-content:space-between}.bin .emoji{font-size:25px}.bin strong{font-size:13px}.bin small{font-size:11px;opacity:.9}.bin.blue{background:#2676bd}.bin.green{background:#37845a}.bin.grey{background:#58615e}.bin.brown{background:#8a5a35}.bin.red{background:#b9483f}.bin.yellow{background:#c49a22}.empty{padding:18px;border:1px dashed #cbd6c9;border-radius:16px;text-align:center;color:var(--muted);font-size:14px}.field{display:flex;flex-direction:column;gap:6px;margin:12px 0}.field label{font-size:12px;font-weight:750;color:#425149}.field input,.field select{width:100%;border:1px solid #cfd9d0;border-radius:12px;padding:13px 12px;background:#fff;color:var(--ink);outline-color:var(--green2)}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.btn{width:100%;border:0;border-radius:13px;padding:14px 16px;font-weight:800;background:var(--green);color:white;box-shadow:0 5px 0 #0d2a20}.btn.secondary{background:#edf1e9;color:var(--green);box-shadow:none;border:1px solid var(--line)}.btn:disabled{opacity:.5;cursor:not-allowed}.notice{border-radius:13px;background:#f4f6ed;padding:12px;font-size:12px;color:#53635a;margin-top:12px}.notice strong{color:var(--green)}.tabs{display:flex;gap:8px;margin:14px 0}.tab{flex:1;border:1px solid var(--line);background:#fff;border-radius:12px;padding:10px 8px;font-size:12px;font-weight:750;color:var(--muted)}.tab.active{background:var(--green);color:#fff;border-color:var(--green)}.hidden{display:none!important}.scheduleline{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}.scheduleline:last-child{border-bottom:0}.swatch{width:12px;height:40px;border-radius:7px}.scheduleline .desc{flex:1}.scheduleline strong{display:block;font-size:14px}.scheduleline small{color:var(--muted)}.date{font-size:12px;font-weight:800;text-align:right}.footer{text-align:center;color:var(--muted);font-size:11px;padding:12px 4px 24px}.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);background:#142f25;color:white;padding:12px 16px;border-radius:14px;box-shadow:var(--shadow);font-size:13px;z-index:10}.modalback{position:fixed;inset:0;background:#0d201ac0;display:grid;place-items:end center;padding:12px;z-index:20}.modal{width:min(100%,540px);background:var(--paper);border-radius:24px;padding:22px;max-height:90dvh;overflow:auto}.modal h2{margin:0 0 6px}.modal p{color:var(--muted);font-size:13px}.switchrow{display:flex;align-items:center;justify-content:space-between;padding:12px 0}.switchrow input{width:22px;height:22px;accent-color:var(--green)}.link{color:var(--green2);font-weight:700}.tiny{font-size:11px;color:var(--muted)}@media(min-width:600px){body{padding:24px 0}.top{border-radius:26px}.app{min-height:0}}
+</style>
+</head>
+<body>
+<div class="app">
+<header class="top">
+ <div class="toprow"><div class="brand"><div class="logo">♻</div><div><div class="brandname">Bins Out</div><div class="tag">Your household's bin-day sidekick</div></div></div><div class="pill">EARLY ACCESS</div></div>
+</header>
+<section class="hero"><div class="eyebrow">One less thing to remember</div><h1>Never miss<br>bin day again.</h1><p>Know what goes out tonight, so tomorrow morning runs smoothly.</p></section>
+<div class="tabs"><button class="tab active" data-tab="home">My bins</button><button class="tab" data-tab="setup">My address</button><button class="tab" data-tab="reminders">Reminders</button></div>
+<main>
+<section id="home">
+ <div class="card">
+  <div class="sectionhead"><h2>Next collection</h2><span class="status" id="dataStatus">DEMO SCHEDULE</span></div>
+  <div id="nextDate" style="font-size:26px;font-weight:850;letter-spacing:-.8px">Add your address</div>
+  <div id="addressLine" class="small" style="margin:4px 0 15px">Find your household schedule to get started.</div>
+  <div id="binList" class="empty">Your bins will appear here once you've added an address or loaded the demo schedule.</div>
+ </div>
+ <div class="card"><div class="sectionhead"><h2>Quick reminder</h2><span class="small" id="reminderLabel">7:00 pm</span></div><div style="font-size:14px">We'll help you remember the evening before collection.</div><div class="notice"><strong>Prototype note:</strong> This demo can save your preferences on this device. It does not yet send real push notifications or verify council collection data automatically.</div><button class="btn secondary" style="margin-top:13px" onclick="showTab('reminders')">Set reminder preferences</button></div>
+</section>
+<section id="setup" class="hidden">
+ <div class="card"><div class="sectionhead"><h2>Find your household</h2><span class="small">Step 1 of 2</span></div>
+  <div class="field"><label for="country">Country or region</label><select id="country"><option value="GB">United Kingdom</option><option value="US">United States</option><option value="CA">Canada</option><option value="AU">Australia</option><option value="NZ">New Zealand</option><option value="IE">Ireland</option><option value="other">Other / international</option></select></div>
+  <div class="row"><div class="field"><label for="house">House number / name</label><input id="house" placeholder="e.g. 24 or Rose Cottage" autocomplete="address-line1"></div><div class="field"><label for="postcode">Postcode / ZIP</label><input id="postcode" placeholder="e.g. SW1A 1AA" autocomplete="postal-code"></div></div>
+  <div class="field"><label for="area">Council / city (optional)</label><input id="area" placeholder="e.g. Westminster, London"></div>
+  <button class="btn" onclick="saveAddress()">Save address</button>
+  <div class="notice"><strong>Privacy first:</strong> The prototype stores this address only in your browser's local storage. Don't enter sensitive information on a shared device.</div>
+ </div>
+ <div class="card"><div class="sectionhead"><h2>Connect real collection data</h2><span class="status">Where available</span></div>
+ <p style="font-size:13px;color:var(--muted);margin-top:0">Collection data is managed locally by councils and service providers. There isn't one reliable worldwide database. Use the official service for your area to confirm dates and bin types.</p>
+ <div class="field"><label for="providerUrl">Official collection lookup URL (optional)</label><input id="providerUrl" type="url" placeholder="https://your-council.gov/..."></div>
+ <button class="btn secondary" onclick="openProvider()">Open official lookup</button>
+ <div class="tiny" style="margin-top:10px">This prototype does not claim that a postcode lookup is connected to a council API. A production release needs verified data integrations for each supported area.</div>
+ </div>
+</section>
+<section id="reminders" class="hidden">
+ <div class="card"><div class="sectionhead"><h2>Reminder settings</h2><span class="small">On this device</span></div>
+ <div class="field"><label for="time">Reminder time</label><select id="time"><option value="17:00">5:00 pm</option><option value="18:00">6:00 pm</option><option value="19:00" selected>7:00 pm</option><option value="20:00">8:00 pm</option><option value="21:00">9:00 pm</option></select></div>
+ <div class="switchrow"><div><strong>Evening-before reminder</strong><div class="small">Show reminder preferences in the app</div></div><input type="checkbox" id="enabled" checked></div>
+ <div class="switchrow"><div><strong>Include collection details</strong><div class="small">List bin colours and waste types</div></div><input type="checkbox" id="details" checked></div>
+ <button class="btn" onclick="saveReminders()">Save preferences</button>
+ <button class="btn secondary" style="margin-top:12px" onclick="testReminder()">Preview reminder</button>
+ <div class="notice">Browser reminders require notification permission and a reliable scheduling service. This prototype previews the reminder but does not send a background notification yet.</div>
+ </div>
+ <div class="card"><h2 style="font-size:16px;margin-top:0">What a reminder looks like</h2><div id="preview" class="notice" style="font-size:14px">🗑️ <strong>Bins Out:</strong> Put your collection bins out tonight. Check your next collection below.</div></div>
+</section>
+</main>
+<div class="footer">Bins Out · Prototype 0.1 · Built for household testing<br>Always confirm collection dates with your local authority.</div>
+</div>
+<div id="toast" class="toast hidden" role="status"></div>
+<div id="modalBack" class="modalback hidden" onclick="if(event.target===this)closeModal()"><div class="modal"><h2 id="modalTitle">Reminder preview</h2><p id="modalText"></p><button class="btn" onclick="closeModal()">Got it</button></div></div>
+<script>
+const $=id=>document.getElementById(id);
+const demoSchedule={kind:"demo",dateOffset:1,bins:[{name:"Recycling",color:"blue",waste:"Paper, card & cans",emoji:"♻"},{name:"General waste",color:"grey",waste:"Non-recyclable rubbish",emoji:"🗑️"},{name:"Food waste",color:"green",waste:"Food scraps",emoji:"🍃"}]};
+let state={address:null,schedule:null,reminders:{time:"19:00",enabled:true,details:true}};
+function load(){try{const s=JSON.parse(localStorage.getItem("binsout-v1")||"{}");state={...state,...s};if(state.address){$("house").value=state.address.house||"";$("postcode").value=state.address.postcode||"";$("area").value=state.address.area||"";$("country").value=state.address.country||"GB";$("providerUrl").value=state.address.providerUrl||"";}if(state.reminders){$("time").value=state.reminders.time||"19:00";$("enabled").checked=state.reminders.enabled!==false;$("details").checked=state.reminders.details!==false;}render();}catch(e){console.warn(e)}}
+function persist(){localStorage.setItem("binsout-v1",JSON.stringify(state))}
+function showTab(tab){document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));["home","setup","reminders"].forEach(id=>$(id).classList.toggle("hidden",id!==tab));}
+document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>showTab(b.dataset.tab)));
+function saveAddress(){let house=$("house").value.trim(),postcode=$("postcode").value.trim();if(!house||!postcode){toast("Add both a house number/name and postcode first.");return}state.address={house,postcode,area:$("area").value.trim(),country:$("country").value,providerUrl:$("providerUrl").value.trim()};state.schedule=null;persist();render();showTab("home");toast("Address saved on this device. Add a verified schedule to replace the demo.");}
+function loadDemo(){state.schedule={...demoSchedule,confirmed:false};persist();render();showTab("home");toast("Demo schedule loaded. This is sample data, not your real collection.");}
+function render(){let a=state.address,s=state.schedule;$("dataStatus").textContent=s&&s.confirmed?"VERIFIED DATA":"DEMO SCHEDULE";if(a){$("addressLine").textContent=[a.house,a.postcode,a.area].filter(Boolean).join(", ");}else{$("addressLine").textContent="Find your household schedule to get started."}
+if(s&&s.bins&&s.bins.length){let d=new Date();d.setDate(d.getDate()+(s.dateOffset||1));$("nextDate").textContent=d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});$("binList").className="bins";$("binList").innerHTML=s.bins.map(b=>`<div class="bin ${safe(b.color)}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name)}</strong><br><small>${safe(b.waste||"Collection")}</small></div></div>`).join("");}else{$("nextDate").textContent="Add your address";$("binList").className="empty";$("binList").innerHTML='No collection schedule connected yet.<br><button class="btn secondary" style="margin-top:12px" onclick="loadDemo()">Load sample schedule</button>'}
+$("reminderLabel").textContent=state.reminders.time||"7:00 pm";updatePreview();}
+function safe(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function saveReminders(){state.reminders={time:$("time").value,enabled:$("enabled").checked,details:$("details").checked};persist();render();toast("Reminder preferences saved on this device.");}
+function updatePreview(){let time=state.reminders.time||"19:00";let [h,m]=time.split(":").map(Number);let fmt=new Date(2000,0,1,h,m).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});let bins=state.schedule?.bins||[];let suffix=state.reminders.details&&bins.length?" Tomorrow: "+bins.map(b=>b.name).join(", ")+".":"";$("preview").innerHTML=`🗑️ <strong>Bins Out (${safe(fmt)}):</strong> Put your collection bins out tonight.${safe(suffix)}`;}
+function testReminder(){updatePreview();$("modalTitle").textContent="Your reminder preview";$("modalText").textContent=$("preview").innerText; $("modalBack").classList.remove("hidden");}
+function closeModal(){$("modalBack").classList.add("hidden")}
+function openProvider(){let u=$("providerUrl").value.trim();if(!u){toast("Add an official council or provider lookup URL first.");return}try{let url=new URL(u);if(!["http:","https:"].includes(url.protocol))throw 0;window.open(url.href,"_blank","noopener,noreferrer")}catch(e){toast("Please enter a valid https:// address.")}}
+let toastTimer;function toast(msg){$("toast").textContent=msg;$("toast").classList.remove("hidden");clearTimeout(toastTimer);toastTimer=setTimeout(()=>$("toast").classList.add("hidden"),3000)}
+if("serviceWorker" in navigator && location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});
+load();
+</script>
+</body>
+</html>

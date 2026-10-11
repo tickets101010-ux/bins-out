@@ -1,0 +1,32 @@
+// Regression tests for the real schedule/matching functions embedded in index.html.
+// Run with: node --test tests/address-lookup.test.js
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const html = fs.readFileSync(require('node:path').join(__dirname, '..', 'index.html'), 'utf8');
+const start = html.indexOf('const CROSSLEES_VERIFIED_SCHEDULE = {');
+const end = html.indexOf('function load(){', start);
+assert.ok(start >= 0 && end > start, 'schedule and matcher code must exist in index.html');
+const source = html.slice(start, end) + '\nmodule.exports = { CROSSLEES_VERIFIED_SCHEDULE, isCrossleesAddress, attachCrossleesSchedule };';
+const sandbox = { module: { exports: {} }, Date, JSON, String, Array, Number };
+vm.runInNewContext(source, sandbox, { timeout: 1000 });
+const { CROSSLEES_VERIFIED_SCHEDULE: known, isCrossleesAddress: matches, attachCrossleesSchedule: attach } = sandbox.module.exports;
+const addr = (overrides = {}) => ({ house: '58', postcode: 'G46 7DS', area: 'East Renfrewshire', country: 'Scotland', ...overrides });
+const validLive = () => ({ kind: 'ukbin-api', confirmed: true, bins: [{ name: 'General waste', date: '2026-12-02' }] });
+test('normalizes postcode spaces and case', () => { assert.equal(matches(addr({postcode:'g46 7ds'})), true); });
+test('accepts exact house number plus matching council and country', () => { assert.equal(matches(addr()), true); });
+test('accepts full house/address text', () => { assert.equal(matches(addr({house:'58 Crosslees Drive'})), true); });
+test('rejects wrong house number', () => { assert.equal(matches(addr({house:'59'})), false); });
+test('rejects wrong postcode', () => { assert.equal(matches(addr({postcode:'G46 7DT'})), false); });
+test('rejects missing council for house-number-only match', () => { assert.equal(matches(addr({area:''})), false); });
+test('rejects missing Scotland country for house-number-only match', () => { assert.equal(matches(addr({country:''})), false); });
+test('rejects empty address', () => { assert.equal(matches(null), false); });
+test('attaches verified dates when schedule is absent', () => { const p={address:addr(),schedule:null}; assert.equal(attach(p),true); assert.equal(p.schedule.kind,'council-calendar'); assert.equal(p.schedule.bins.length,11); });
+test('attaches verified dates over an empty schedule', () => { const p={address:addr(),schedule:{kind:'ukbin-api',confirmed:true,bins:[]}}; assert.equal(attach(p),true); assert.equal(p.schedule.kind,'council-calendar'); });
+test('attaches verified dates over an unconfirmed schedule', () => { const p={address:addr(),schedule:{kind:'demo',confirmed:false,bins:[{date:'2026-10-12'}]}}; assert.equal(attach(p),true); });
+test('attaches verified dates over malformed dates', () => { const p={address:addr(),schedule:{kind:'ukbin-api',confirmed:true,bins:[{date:'not-a-date'}]}}; assert.equal(attach(p),true); });
+test('preserves valid live UKBinDay schedule', () => { const schedule=validLive(); const p={address:addr(),schedule}; assert.equal(attach(p),false); assert.equal(p.schedule,schedule); });
+test('preserves valid confirmed council schedule', () => { const schedule={kind:'council-calendar',confirmed:true,bins:[{date:'2026-12-02'}]}; const p={address:addr(),schedule}; assert.equal(attach(p),false); assert.equal(p.schedule,schedule); });
+test('does not attach Crosslees dates to another property', () => { const p={address:addr({house:'59'}),schedule:null}; assert.equal(attach(p),false); assert.equal(p.schedule,null); });
+test('verified schedule dates and bin counts match the council screenshots', () => { assert.deepEqual(Array.from(known.bins, b=>[b.date,b.name]), [ ['2026-10-14','Brown — Food and garden waste'], ['2026-10-14','Green — Plastic recycling'], ['2026-10-21','Blue — Paper and cardboard recycling'], ['2026-10-28','Brown — Food and garden waste'], ['2026-10-28','Grey — General waste'], ['2026-11-04','Green — Plastic recycling'], ['2026-11-11','Brown — Food and garden waste'], ['2026-11-11','Blue — Paper and cardboard recycling'], ['2026-11-18','Grey — General waste'], ['2026-11-25','Brown — Food and garden waste'], ['2026-11-25','Green — Plastic recycling'] ]); });

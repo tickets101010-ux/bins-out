@@ -50,8 +50,8 @@
   <button class="btn" onclick="saveAddress()">Save address</button>
   <div class="notice"><strong>Privacy first:</strong> The prototype stores this address only in your browser's local storage. Don't enter sensitive information on a shared device.</div>
  </div>
- <div class="card"><div class="sectionhead"><h2>Bin collection dates</h2><span class="status">Live lookup · V8</span></div>
- <p style="font-size:13px;color:var(--muted);margin-top:0">V8 uses UKBinDay API v2. Search the postcode to identify the responsible council, enter/select the exact property UPRN, then check its returned schedule. If the provider requires council property verification, the app will say so instead of guessing dates.</p>
+ <div class="card"><div class="sectionhead"><h2>Bin collection dates</h2><span class="status">Council schedule</span></div>
+ <p style="font-size:13px;color:var(--muted);margin-top:0">For 58 Crosslees Drive, G46 7DS, collection dates confirmed from the council checker screenshots are loaded through 25 November 2026. Automated lookups are still blocked by the council website; later dates need confirmation.</p>
  <div class="field"><label for="ladCode">Council code (filled by postcode lookup)</label><input id="ladCode" placeholder="Search postcode first" autocapitalize="characters"></div>
  <div class="field"><label for="uprn">Exact property reference (UPRN, up to 12 digits)</label><input id="uprn" inputmode="numeric" pattern="[0-9]{1,12}" maxlength="12" placeholder="Enter UPRN from council property result"></div>
  <button class="btn" onclick="lookupCollections()" id="collectionBtn">Check collection dates</button>
@@ -75,7 +75,7 @@
  </div>
 </section>
 </main>
-<div class="footer">Bins Out · V7 · UK-first live connector test<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
+<div class="footer">Bins Out · V9 · Verified Crosslees schedule test<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <div id="modalBack" class="modalback hidden" onclick="if(event.target===this)closeModal()"><div class="modal"><h2 id="modalTitle">Reminder preview</h2><p id="modalText"></p><button class="btn" onclick="closeModal()">Got it</button></div></div>
@@ -109,13 +109,40 @@ function ensureProfiles(){
 }
 function syncLegacy(){const p=activeProfile();state.address=p?.address||null;state.schedule=p?.schedule||null;state.reminders={...defaultReminders,...(p?.reminders||{})}}
 function persist(){syncLegacy();localStorage.setItem("binsout-v1",JSON.stringify(state))}
+const CROSSLEES_VERIFIED_SCHEDULE = {
+  kind:"council-calendar", confirmed:true, source:"East Renfrewshire Council bin-day checker screenshots supplied by the user", checkedAt:"2026-10-11",
+  bins:[
+    {name:"Brown — Food and garden waste",date:"2026-10-14",color:"brown",waste:"Food and garden waste",emoji:"🟫"},
+    {name:"Green — Plastic recycling",date:"2026-10-14",color:"green",waste:"Plastic recycling",emoji:"🟩"},
+    {name:"Blue — Paper and cardboard recycling",date:"2026-10-21",color:"blue",waste:"Paper and cardboard recycling",emoji:"🟦"},
+    {name:"Brown — Food and garden waste",date:"2026-10-28",color:"brown",waste:"Food and garden waste",emoji:"🟫"},
+    {name:"Grey — General waste",date:"2026-10-28",color:"grey",waste:"General waste",emoji:"⬛"},
+    {name:"Green — Plastic recycling",date:"2026-11-04",color:"green",waste:"Plastic recycling",emoji:"🟩"},
+    {name:"Brown — Food and garden waste",date:"2026-11-11",color:"brown",waste:"Food and garden waste",emoji:"🟫"},
+    {name:"Blue — Paper and cardboard recycling",date:"2026-11-11",color:"blue",waste:"Paper and cardboard recycling",emoji:"🟦"},
+    {name:"Grey — General waste",date:"2026-11-18",color:"grey",waste:"General waste",emoji:"⬛"},
+    {name:"Brown — Food and garden waste",date:"2026-11-25",color:"brown",waste:"Food and garden waste",emoji:"🟫"},
+    {name:"Green — Plastic recycling",date:"2026-11-25",color:"green",waste:"Plastic recycling",emoji:"🟩"}
+  ]
+};
+function isCrossleesAddress(a){return !!a && /58\s*crosslees\s*drive/i.test(String(a.house||"")) && String(a.postcode||"").replace(/\s+/g,"").toUpperCase()==="G467DS";}
+function attachCrossleesSchedule(profile){
+  if(isCrossleesAddress(profile?.address) && (!profile.schedule || !profile.schedule.confirmed)){
+    profile.schedule=JSON.parse(JSON.stringify(CROSSLEES_VERIFIED_SCHEDULE));
+    profile.address={...profile.address,area:profile.address.area||"East Renfrewshire Council",country:"Scotland"};
+    return true;
+  }
+  return false;
+}
 function load(){
   try{
     const saved=JSON.parse(localStorage.getItem("binsout-v1")||"{}");
     state={...saved};
     ensureProfiles();
     let removedDemo=false; state.profiles=state.profiles.map(p=>{if(p.schedule && p.schedule.confirmed!==true){removedDemo=true;return {...p,schedule:null}}return p});
-    if(removedDemo)persist();
+    let attachedCouncilSchedule=false;
+    state.profiles.forEach(p=>{if(attachCrossleesSchedule(p))attachedCouncilSchedule=true});
+    if(removedDemo||attachedCouncilSchedule)persist();
     loadActiveIntoForm();
     render();
   }catch(e){console.warn(e);state={profiles:[],activeProfileId:null};ensureProfiles();loadActiveIntoForm();render()}
@@ -266,8 +293,9 @@ function saveAddress(){
   p.address=nextAddress;
   p.name=[house,postcode].filter(Boolean).join(" · ")||"My household";
   if(addressChanged)p.schedule=null;
+  const loadedCouncilSchedule=attachCrossleesSchedule(p);
   persist();render();showTab("home");
-  toast(addressChanged?"Address saved. Check the official council page to confirm its schedule.":"Address details updated. Existing schedule status kept.");
+  toast(loadedCouncilSchedule?"Address saved. Verified council dates loaded through 25 November 2026.":addressChanged?"Address saved. Check the official council page to confirm its schedule.":"Address details updated. Existing schedule status kept.");
 }
 function loadDemo(){
   const p=activeProfile();if(!p){toast("Add a household first to preview sample bins.");showTab("setup");return;}
@@ -278,14 +306,14 @@ function render(){
   syncLegacy();
   const p=activeProfile(),a=p?.address,s=p?.schedule;
   refreshProfileSelect();
-  $("dataStatus").textContent=s&&s.confirmed&&s.kind==="ukbin-api"?"LIVE SOURCE":s?"SAMPLE ONLY":"NO DATA";
+  $("dataStatus").textContent=s&&s.confirmed&&s.kind==="ukbin-api"?"LIVE SOURCE":s&&s.confirmed&&s.kind==="council-calendar"?"COUNCIL DATES":s?"SAMPLE ONLY":"NO DATA";
   $("addressLine").textContent=a?([a.house,a.postcode,a.area,a.country].filter(Boolean).join(", ")): "Add a UK address to get started.";
-  if(s&&s.confirmed===true&&s.kind==="ukbin-api"&&s.bins&&s.bins.length){
+  if(s&&s.confirmed===true&&["ukbin-api","council-calendar"].includes(s.kind)&&s.bins&&s.bins.length){
     let d=new Date();d.setDate(d.getDate()+(s.dateOffset||1));
-    const next=s.confirmed&&s.kind==="ukbin-api"?s.bins.map(b=>new Date(b.date)).filter(x=>!Number.isNaN(x.getTime())&&x>=new Date(new Date().toDateString())).sort((a,b)=>a-b)[0]:null;
-    $("nextDate").textContent=s.kind==="ukbin-api"?(next?next.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}):"No upcoming dates returned"):s.confirmed?d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}):"Sample only — not your collection date";
+    const next=s.confirmed&&["ukbin-api","council-calendar"].includes(s.kind)?s.bins.map(b=>new Date(b.date+"T12:00:00")).filter(x=>!Number.isNaN(x.getTime())&&x>=new Date(new Date().toDateString())).sort((a,b)=>a-b)[0]:null;
+    $("nextDate").textContent=( ["ukbin-api","council-calendar"].includes(s.kind))?(next?next.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}):"No upcoming dates in saved schedule"):(s.confirmed?d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}):"Sample only — not your collection date");
     $("binList").className="bins";
-    $("binList").innerHTML=s.bins.map(b=>`<div class="bin ${safe(b.color)}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name)}</strong><br><small>${safe(b.date?formatDate(b.date):b.waste||"Collection")}</small></div></div>`).join("");
+    $("binList").innerHTML=s.bins.filter(b=>{const dt=new Date(b.date+"T12:00:00");return !Number.isNaN(dt.getTime())&&dt>=new Date(new Date().toDateString())}).map(b=>`<div class="bin ${safe(b.color)}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name)}</strong><br><small>${safe(b.date?formatDate(b.date):b.waste||"Collection")}</small></div></div>`).join("") + (s.kind==="council-calendar"?'<div class="notice" style="grid-column:1/-1"><strong>Verified council dates</strong><br>Transcribed from the council checker screenshots. Schedule currently confirmed through Wednesday 25 November 2026; later dates are not loaded yet.</div>':"");
   }else{
     $("nextDate").textContent=a?"No verified collection dates yet":"Add your address";
     $("binList").className="empty";

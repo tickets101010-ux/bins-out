@@ -13,13 +13,13 @@ export default {
   if(url.pathname==="/health")return Response.json({ok:true,service:"Bins Out V8 connector",upstream:API},{headers});
   let upstream;
   if(url.pathname==="/find"){
-   const postcode=(url.searchParams.get("postcode")||"").replace(/\\s+/g,"").toUpperCase();
+   const postcode=(url.searchParams.get("postcode")||"").replace(/\s+/g,"").toUpperCase();
    if(!postcode)return Response.json({error:"postcode required"},{status:400,headers});
    upstream=`${API}/find?postcode=${encodeURIComponent(postcode)}`;
   }else if(url.pathname==="/view"){
    const lad=(url.searchParams.get("lad")||"").trim(),uprn=(url.searchParams.get("uprn")||"").trim();
    if(!lad||!/^[A-Za-z0-9_-]{3,20}$/.test(lad))return Response.json({error:"Valid council LAD code required; search postcode first"},{status:400,headers});
-   if(!/^\\d{1,12}$/.test(uprn))return Response.json({error:"A valid UPRN (up to 12 digits) is required"},{status:400,headers});
+   if(!/^\d{1,12}$/.test(uprn))return Response.json({error:"A valid UPRN (up to 12 digits) is required"},{status:400,headers});
    const params=new URLSearchParams();
    for(const key of ["postcode","address"]){const value=url.searchParams.get(key);if(value)params.set(key,value)}
    upstream=`${API}/${encodeURIComponent(lad)}/view/${encodeURIComponent(uprn)}${params.size?`?${params}`:""}`;

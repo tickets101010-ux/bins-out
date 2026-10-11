@@ -1,23 +1,18 @@
-Bins Out V#5 — corrected UK Bin Day API integration
+Bins Out V6 — Glasgow connector attempt
 
-UPLOAD
-Upload every file in this ZIP to the ROOT of the existing GitHub Pages repository and replace files with the same names. Do not upload the ZIP itself.
+WHY V5 FAILED
+The screenshot's “Failed to fetch” confirms the browser could not complete its direct request. UKBinDay now documents API v2, and its address list may be withheld behind an address-verification challenge. GitHub Pages cannot run a server-side proxy. This ZIP includes a Worker connector and frontend wiring, but the Worker must be deployed before live lookup can run.
 
-WHAT CHANGED
-- Uses the documented UKBinDay API v1 routes: /addresses/{postcode} and /lookup/{uprn}, instead of the previous v2-style /find and council/view paths.
-- Normalises common address and collection response shapes and requires a property UPRN before saving dates as verified.
-- Keeps the existing household save/delete/switch functionality and refuses to invent collection dates.
-- Bumps the service-worker cache so the updated app can be fetched.
-- Glasgow official fallback opens the council's address search.
+SETUP (one time)
+1. Open Cloudflare Workers & Pages and create a Worker named bins-out-connector.
+2. Replace its starter code with the entire contents of worker.js and deploy.
+3. Copy the Worker URL, e.g. https://bins-out-connector.YOURSUBDOMAIN.workers.dev
+4. Upload all app files in this ZIP to the ROOT of https://github.com/tickets101010-ux/bins-out, replacing matching files. Do NOT upload the ZIP itself.
+5. Open Bins Out, go to “Live data connector”, paste the Worker URL, tap “Save connector URL”, then test postcode lookup.
 
-IMPORTANT HONEST LIMITATION
-I could not make live network requests from the build environment, so I could not verify the provider's live response shape or whether its API allows browser CORS requests. The API docs list these v1 routes, but this ZIP is not a claim that the live integration has passed a real-address test. After uploading, test with a postcode and exact house number. If Chrome reports a network/CORS error, the next required step is deploying a server-side proxy/connector; GitHub Pages alone cannot run that backend.
+IMPORTANT
+This is not yet a verified live Glasgow integration. UKBinDay documents /api/v2/find and /api/v2/{lad}/view/{uprn}; its /find address list may be unavailable where address verification is required. The connector does not bypass that challenge. If the provider cannot identify the property, use the official council calendar; the app will not invent dates.
 
-GLASGOW OFFICIAL SOURCE
+OFFICIAL GLASGOW LOOKUP
 https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/AddressSearch.aspx
-
-API reference
-https://ukbinday.co.uk/api/v1/councils
-API project documentation: https://github.com/cmbsteinberg/ukbinday
-
-After upload: open the site in Chrome, clear browser history/site data as you did for the previous install fix, then reopen/reinstall the app if it keeps showing the old version.
+API DOCS: https://ukbinday.co.uk/api-docs

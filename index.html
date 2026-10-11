@@ -110,6 +110,8 @@ function load(){
     const saved=JSON.parse(localStorage.getItem("binsout-v1")||"{}");
     state={...saved};
     ensureProfiles();
+    let removedDemo=false; state.profiles=state.profiles.map(p=>{if(p.schedule && p.schedule.confirmed!==true){removedDemo=true;return {...p,schedule:null}}return p});
+    if(removedDemo)persist();
     loadActiveIntoForm();
     render();
   }catch(e){console.warn(e);state={profiles:[],activeProfileId:null};ensureProfiles();loadActiveIntoForm();render()}
@@ -200,8 +202,8 @@ async function lookupPostcode(){
     if(data.council_name){$("area").value=data.council_name;if(/glasgow/i.test(data.council_name))$("country").value="Scotland";}
     if(lookupAddresses.length){out.innerHTML=`<strong>Choose your exact property</strong><div class="field"><select id="addressChoice"><option value="">Select address…</option>${lookupAddresses.map((a,i)=>`<option value="${i}">${safe(a.address||a.label||a.name||"Address")}</option>`).join("")}</select></div><button class="btn secondary" onclick="useLookupAddress()">Use selected address</button>`;}
     else if(data.deeplink?.url){out.innerHTML=`<strong>${safe(data.council_name||"Council lookup")}</strong><p>${safe(data.deeplink.reason||"Online address selection is not available through this lookup.")}</p><a class="link" target="_blank" rel="noopener" href="${safe(data.deeplink.url)}">Open council's own lookup</a>`;}
-    else out.textContent="The postcode was checked, but no address records were returned. Try the council's own lookup below.";
-  }catch(e){out.innerHTML=`<strong>Automatic lookup isn't available right now.</strong><p>For Glasgow, search your postcode or street on the official council calendar. You can still enter and save the address below.</p><a class="link" target="_blank" rel="noopener" href="https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/AddressSearch.aspx">Open Glasgow City Council address search</a>`;}
+    else out.innerHTML=`<strong>Postcode received, but property addresses were not returned.</strong><p>The lookup provider does not expose its full address list to this app in every browser. Use Glasgow City Council’s own address search to select the exact property.</p><button class="btn secondary" onclick="openGlasgowCalendar()">Open Glasgow address search</button>`;
+  }catch(e){out.innerHTML=`<strong>Automatic lookup isn't available right now.</strong><p>The postcode service is not returning usable property results in this browser. For Glasgow, search your postcode or street on the council calendar. You can still save your address below.</p><button class="btn secondary" style="margin-top:8px" onclick="openGlasgowCalendar()">Open Glasgow City Council address search</button>`;}
   finally{btn.disabled=false;btn.textContent="Find address by postcode"}
 }
 function useLookupAddress(){const sel=$("addressChoice");const a=lookupAddresses[Number(sel?.value)];if(!a){toast("Choose an address first.");return}const label=a.address||a.label||a.name||"";const m=label.match(/^(.+?),\s*(.+)$/);if(m){$("house").value=m[1].trim();if(!( $("area") ).value)$("area").value=m[2].trim()}else $("house").value=label;toast("Address added to the form. Save it to keep this household.")}
@@ -218,7 +220,7 @@ async function lookupCollections(){
     const bins=v.dates.map(d=>({name:d.name||d.type||d.bin||"Collection",date:d.date||d.collection_date||d.next_collection,color:colorForBin(d.name||d.type||d.bin||""),waste:"Council data",emoji:"♻"})).filter(b=>b.date);if(!bins.length)throw new Error("No usable collection dates were returned");
     const p=activeProfile();if(!p){toast("Save this address first, then check dates.");return}p.schedule={kind:"ukbin-api",confirmed:true,source:"UK Bin Day API",checkedAt:new Date().toISOString(),bins};persist();render();
     out.innerHTML=`<strong>Collection data received</strong><p>Retrieved ${new Date().toLocaleString()}. Verify urgent or disrupted collections with the council.</p>${bins.map(b=>`<div style="padding:6px 0;border-bottom:1px solid var(--line)"><strong>${safe(b.name)}</strong> — ${safe(formatDate(b.date))}</div>`).join("")}`;
-  }catch(e){out.innerHTML=`<strong>Dates not verified.</strong><p>${safe(e.message||"The lookup service could not be reached from this device.")}</p><a class="link" target="_blank" rel="noopener" href="https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/AddressSearch.aspx">Glasgow official calendar</a><p class="tiny">The external service may be unavailable or block browser requests. Bins Out will not show invented dates.</p>`;}
+  }catch(e){out.innerHTML=`<strong>Dates not verified.</strong><p>${safe(e.message||"The lookup service could not be reached from this device.")}</p><button class="btn secondary" style="margin-top:8px" onclick="openGlasgowCalendar()">Open Glasgow official calendar</button><p class="tiny">The external service may be unavailable or block browser requests. Bins Out will not show invented dates.</p>`;}
   finally{btn.disabled=false;btn.textContent="Check collection dates"}
 }
 function colorForBin(name){const n=name.toLowerCase();if(n.includes("brown")||n.includes("garden"))return"brown";if(n.includes("blue")||n.includes("paper"))return"blue";if(n.includes("food")||n.includes("glass"))return"green";if(n.includes("general")||n.includes("grey")||n.includes("black"))return"grey";return"blue"}
@@ -253,7 +255,7 @@ function render(){
   refreshProfileSelect();
   $("dataStatus").textContent=s&&s.confirmed&&s.kind==="ukbin-api"?"LIVE SOURCE":s?"SAMPLE ONLY":"NO DATA";
   $("addressLine").textContent=a?([a.house,a.postcode,a.area,a.country].filter(Boolean).join(", ")): "Add a UK address to get started.";
-  if(s&&s.bins&&s.bins.length){
+  if(s&&s.confirmed===true&&s.kind==="ukbin-api"&&s.bins&&s.bins.length){
     let d=new Date();d.setDate(d.getDate()+(s.dateOffset||1));
     const next=s.confirmed&&s.kind==="ukbin-api"?s.bins.map(b=>new Date(b.date)).filter(x=>!Number.isNaN(x.getTime())&&x>=new Date(new Date().toDateString())).sort((a,b)=>a-b)[0]:null;
     $("nextDate").textContent=s.kind==="ukbin-api"?(next?next.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}):"No upcoming dates returned"):s.confirmed?d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}):"Sample only — not your collection date";
@@ -263,7 +265,7 @@ function render(){
     $("nextDate").textContent=a?"No verified collection dates yet":"Add your address";
     $("binList").className="empty";
     $("binList").innerHTML=p
-      ? 'No verified collection schedule is connected to this household yet. Your address and preferences are saved. Open the official council page to check your dates; Bins Out will not guess them.<br><button class="btn secondary" style="margin-top:12px" onclick="showTab(\'setup\')">Review address</button><button class="btn secondary" style="margin-top:12px" onclick="loadDemo()">Preview sample bins</button>'
+      ? 'No verified collection schedule is connected to this household yet. Your address and preferences are saved. Use the address lookup below to check the council source. Bins Out will not display sample dates as real collections.<br><button class="btn secondary" style="margin-top:12px" onclick="showTab(\'setup\')">Review address</button>'
       : 'No household saved. Bins Out is ready when you are.<br><button class="btn secondary" style="margin-top:12px" onclick="addProfile()">＋ Add your first address</button>';
   }
   const activeReminder=activeProfile()?.reminders||defaultReminders;
@@ -275,15 +277,20 @@ function saveReminders(){const p=activeProfile();if(!p){toast("Add a household b
 function updatePreview(){const p=activeProfile();const r={...defaultReminders,...(p?.reminders||{})};const time=r.time||"19:00";let [h,m]=time.split(":").map(Number);let fmt=new Date(2000,0,1,h,m).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});const bins=p?.schedule?.bins||[];const suffix=r.details&&bins.length?" Collection bins in this profile: "+bins.map(b=>b.name).join(", ")+".":"";$("preview").innerHTML=`🗑️ <strong>Bins Out (${safe(fmt)}):</strong> ${r.enabled?"Reminder preference is ON.":"Reminder preference is OFF."}${safe(suffix)} <span style="display:block;margin-top:6px">Preview only — no notification has been scheduled or sent.</span>`;}
 function testReminder(){updatePreview();$("modalTitle").textContent="Your reminder preview";$("modalText").textContent=$("preview").innerText; $("modalBack").classList.remove("hidden");}
 function closeModal(){$("modalBack").classList.add("hidden")}
+function openGlasgowCalendar(){
+  // Navigate the current PWA tab: Android installed PWAs can block window.open popups.
+  window.location.href="https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/AddressSearch.aspx";
+}
 function openOfficialGuide(){
   const region=$("country").value;
+  if(region==="Scotland" && /glasgow/i.test($("area").value||"")){openGlasgowCalendar();return;}
   const routes={
     "England":"https://www.gov.uk/rubbish-collection-day",
     "Wales":"https://www.gov.uk/rubbish-collection-day",
     "Scotland":"https://www.mygov.scot/bin-days",
     "Northern Ireland":"https://www.nidirect.gov.uk/articles/bins-and-waste-collection"
   };
-  window.open(routes[region]||routes["England"],"_blank","noopener,noreferrer");
+  window.location.href=routes[region]||routes["England"];
 }
 function openProvider(){let u=$("providerUrl").value.trim();if(!u){openOfficialGuide();return}try{let url=new URL(u);if(!["http:","https:"].includes(url.protocol))throw 0;window.open(url.href,"_blank","noopener,noreferrer")}catch(e){toast("Please enter a valid https:// address.")}}
 let toastTimer;function toast(msg){$("toast").textContent=msg;$("toast").classList.remove("hidden");clearTimeout(toastTimer);toastTimer=setTimeout(()=>$("toast").classList.add("hidden"),3000)}

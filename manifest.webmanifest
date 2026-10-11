@@ -1,5 +1,6 @@
 {
-  "name": "Bins Out \u2014 Never miss bin day",
+  "id": "./",
+  "name": "Bins Out — Never miss bin day",
   "short_name": "Bins Out",
   "description": "UK household bin collection reminders.",
   "start_url": "./",

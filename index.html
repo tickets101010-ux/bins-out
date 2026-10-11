@@ -277,6 +277,29 @@ async function lookupCollections(){
 
 function colorForBin(name){const n=name.toLowerCase();if(n.includes("brown")||n.includes("garden"))return"brown";if(n.includes("blue")||n.includes("paper"))return"blue";if(n.includes("food")||n.includes("glass"))return"green";if(n.includes("general")||n.includes("grey")||n.includes("black"))return"grey";return"blue"}
 function formatDate(value){const d=new Date(value);return Number.isNaN(d.getTime())?String(value):d.toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short",year:"numeric"})}
+async function refreshCrossleesSchedule(){
+  const p=activeProfile();
+  if(!p?.address)return;
+  const a=p.address;
+  const isTarget=String(a.house||"").trim().toLowerCase()==="58 crosslees drive"
+    &&String(a.postcode||"").replace(/\s+/g,"").toUpperCase()==="G467DS"
+    &&String(a.country||"").toLowerCase()==="scotland";
+  if(!isTarget)return;
+  try{
+    const response=await fetch("./data/east-renfrewshire-schedule.json?refresh="+Date.now(),{cache:"no-store",headers:{Accept:"application/json"}});
+    if(!response.ok)return;
+    const data=await response.json();
+    if(data.kind!=="council-calendar"||data.confirmed!==true||!Array.isArray(data.bins)||!data.bins.length)return;
+    const bins=data.bins.filter(b=>/^\d{4}-\d{2}-\d{2}$/.test(String(b.date||""))&&b.name);
+    if(!bins.length)return;
+    p.schedule={kind:"council-calendar",confirmed:true,source:data.source||"East Renfrewshire Council",checkedAt:data.checkedAt||null,bins};
+    persist();render();
+    const checked=data.checkedAt?new Date(data.checkedAt).toLocaleString():"recently";
+    $("collectionStatus").innerHTML="<strong>Verified council schedule refreshed.</strong><p>Latest schedule file checked "+safe(checked)+". If the council service is unavailable, the last saved schedule remains visible.</p>";
+  }catch(_error){
+    // Keep the last known verified schedule if the daily refresh file is not available.
+  }
+}
 function saveAddress(){
   let house=$("house").value.trim(),postcode=$("postcode").value.trim();
   if(!house||!postcode){toast("Add both a house number/name and postcode first.");return}
@@ -351,6 +374,7 @@ let toastTimer;function toast(msg){$("toast").textContent=msg;$("toast").classLi
 if("serviceWorker" in navigator && location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});
 if($("connectorUrl"))$("connectorUrl").value=CONNECTOR_URL;
 load();
+refreshCrossleesSchedule();
 </script>
 </body>
 </html>

@@ -127,7 +127,7 @@ const CROSSLEES_VERIFIED_SCHEDULE = {
 };
 function isCrossleesAddress(a){if(!a)return false;const house=String(a.house||"").trim().toLowerCase();const postcode=String(a.postcode||"").replace(/\s+/g,"").toUpperCase();const area=String(a.area||"").toLowerCase();const country=String(a.country||"").toLowerCase();if(postcode!=="G467DS")return false;if(/58\s*crosslees\s*drive/.test(house))return true;return house==="58" && /east renfrewshire/.test(area) && /scotland/.test(country);}
 function attachCrossleesSchedule(profile){
-  if(isCrossleesAddress(profile?.address) && (!profile.schedule || !profile.schedule.confirmed)){
+  if(isCrossleesAddress(profile?.address) && (!profile.schedule || profile.schedule.kind!=="council-calendar" || profile.schedule.confirmed!==true || !Array.isArray(profile.schedule.bins) || profile.schedule.bins.length===0)){
     profile.schedule=JSON.parse(JSON.stringify(CROSSLEES_VERIFIED_SCHEDULE));
     profile.address={...profile.address,area:profile.address.area||"East Renfrewshire Council",country:"Scotland"};
     return true;

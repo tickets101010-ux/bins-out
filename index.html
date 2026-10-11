@@ -72,7 +72,7 @@
  </div>
 </section>
 </main>
-<div class="footer">Bins Out · V4 · UK-first build<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
+<div class="footer">Bins Out · V5 · UK-first build<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <div id="modalBack" class="modalback hidden" onclick="if(event.target===this)closeModal()"><div class="modal"><h2 id="modalTitle">Reminder preview</h2><p id="modalText"></p><button class="btn" onclick="closeModal()">Got it</button></div></div>
@@ -80,7 +80,7 @@
 const $=id=>document.getElementById(id);
 const demoSchedule={kind:"demo",dateOffset:1,bins:[{name:"Recycling",color:"blue",waste:"Paper, card & cans",emoji:"♻"},{name:"General waste",color:"grey",waste:"Non-recyclable rubbish",emoji:"🗑️"},{name:"Food waste",color:"green",waste:"Food scraps",emoji:"🍃"}]};
 const defaultReminders={time:"19:00",enabled:true,details:true};
-const UKBIN_API="https://ukbinday.co.uk/api/v2";
+const UKBIN_API="https://ukbinday.co.uk/api/v1";
 let lookupAddresses=[];
 let state={profiles:[],activeProfileId:null};
 function makeId(){return "hh-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,7)}
@@ -194,33 +194,42 @@ function deleteProfile(){
 async function lookupPostcode(){
   const postcode=$("postcode").value.trim().toUpperCase();
   if(!postcode){toast("Enter a full UK postcode first.");$("postcode").focus();return}
-  const btn=$("lookupBtn"),out=$("lookupResults");btn.disabled=true;btn.textContent="Searching…";out.classList.remove("hidden");out.textContent="Checking postcode and available address records…";
+  const btn=$("lookupBtn"),out=$("lookupResults");btn.disabled=true;btn.textContent="Searching…";out.classList.remove("hidden");out.textContent="Looking up addresses and property reference numbers…";
   try{
-    const res=await fetch(`${UKBIN_API}/find?postcode=${encodeURIComponent(postcode)}`,{headers:{Accept:"application/json"}});
-    if(!res.ok)throw new Error("Lookup service unavailable");
-    const data=await res.json();lookupAddresses=Array.isArray(data.addresses)?data.addresses:[];
-    if(data.council_name){$("area").value=data.council_name;if(/glasgow/i.test(data.council_name))$("country").value="Scotland";}
-    if(lookupAddresses.length){out.innerHTML=`<strong>Choose your exact property</strong><div class="field"><select id="addressChoice"><option value="">Select address…</option>${lookupAddresses.map((a,i)=>`<option value="${i}">${safe(a.address||a.label||a.name||"Address")}</option>`).join("")}</select></div><button class="btn secondary" onclick="useLookupAddress()">Use selected address</button>`;}
-    else if(data.deeplink?.url){out.innerHTML=`<strong>${safe(data.council_name||"Council lookup")}</strong><p>${safe(data.deeplink.reason||"Online address selection is not available through this lookup.")}</p><a class="link" target="_blank" rel="noopener" href="${safe(data.deeplink.url)}">Open council's own lookup</a>`;}
-    else out.innerHTML=`<strong>Postcode received, but property addresses were not returned.</strong><p>The lookup provider does not expose its full address list to this app in every browser. Use Glasgow City Council’s own address search to select the exact property.</p><button class="btn secondary" onclick="openGlasgowCalendar()">Open Glasgow address search</button>`;
-  }catch(e){out.innerHTML=`<strong>Automatic lookup isn't available right now.</strong><p>The postcode service is not returning usable property results in this browser. For Glasgow, search your postcode or street on the council calendar. You can still save your address below.</p><button class="btn secondary" style="margin-top:8px" onclick="openGlasgowCalendar()">Open Glasgow City Council address search</button>`;}
+    const res=await fetch(`${UKBIN_API}/addresses/${encodeURIComponent(postcode.replace(/\s+/g,""))}`,{headers:{Accept:"application/json"}});
+    if(!res.ok)throw new Error(`Address service returned ${res.status}`);
+    const raw=await res.json();
+    const list=Array.isArray(raw)?raw:(raw.addresses||raw.results||raw.data||[]);
+    lookupAddresses=list.map(a=>({ ...a, address:a.address||a.full_address||a.label||a.name||a.formatted_address||[a.building_name,a.building_number,a.street,a.post_town,a.postcode].filter(Boolean).join(", "), uprn:a.uprn||a.UPRN||a.property_uprn })).filter(a=>a.address);
+    const council=raw.council_name||raw.council?.name||raw.council||raw.local_authority||"";
+    if(council){$("area").value=typeof council==="string"?council:(council.name||"");if(/glasgow/i.test(JSON.stringify(council)))$("country").value="Scotland";}
+    if(lookupAddresses.length){out.innerHTML=`<strong>Choose the exact property</strong><p>Check the house number and street carefully. The chosen property reference is used to request its collection schedule.</p><div class="field"><select id="addressChoice"><option value="">Select address…</option>${lookupAddresses.map((a,i)=>`<option value="${i}">${safe(a.address)}${a.uprn?" · property verified":""}</option>`).join("")}</select></div><button class="btn secondary" onclick="useLookupAddress()">Use selected address</button>`;}
+    else {out.innerHTML=`<strong>No property list returned for ${safe(postcode)}.</strong><p>For Glasgow, use the council's own search and choose the exact property. Save the matching house number and postcode here, then use Check collection dates if the data service supports it.</p><button class="btn secondary" onclick="openGlasgowCalendar()">Open Glasgow City Council search</button>`;}
+  }catch(e){out.innerHTML=`<strong>Automatic address lookup couldn't complete.</strong><p>${safe(e.message||"The address service may be unavailable or blocked by the browser.")}</p><p>Glasgow's official address search is the reliable fallback. Select your exact address there; don't rely on a guessed house/postcode match.</p><button class="btn secondary" onclick="openGlasgowCalendar()">Open Glasgow City Council search</button>`;}
   finally{btn.disabled=false;btn.textContent="Find address by postcode"}
 }
 function useLookupAddress(){const sel=$("addressChoice");const a=lookupAddresses[Number(sel?.value)];if(!a){toast("Choose an address first.");return}const label=a.address||a.label||a.name||"";const m=label.match(/^(.+?),\s*(.+)$/);if(m){$("house").value=m[1].trim();if(!( $("area") ).value)$("area").value=m[2].trim()}else $("house").value=label;toast("Address added to the form. Save it to keep this household.")}
 async function lookupCollections(){
   const postcode=$("postcode").value.trim().toUpperCase(),house=$("house").value.trim();if(!postcode){toast("Enter a postcode first.");showTab("setup");$("postcode").focus();return}
-  const btn=$("collectionBtn"),out=$("collectionStatus");btn.disabled=true;btn.textContent="Checking…";out.textContent="Requesting current dates from the UK collection-data service…";
+  const btn=$("collectionBtn"),out=$("collectionStatus");btn.disabled=true;btn.textContent="Checking…";out.textContent="Finding the exact property reference, then requesting its live collection dates…";
   try{
-    const fr=await fetch(`${UKBIN_API}/find?postcode=${encodeURIComponent(postcode)}`,{headers:{Accept:"application/json"}});if(!fr.ok)throw new Error("Postcode lookup failed");const f=await fr.json();
-    const addr=(f.addresses||[]).find(x=>{const label=String(x.address||x.label||x.name||"").toLowerCase();return house&&label.includes(house.toLowerCase())})||(f.addresses||[]).find(x=>!house||String(x.address||x.label||x.name||"").toLowerCase().startsWith(house.toLowerCase()));
-    if(!addr||!addr.uprn||!f.council){if(f.deeplink?.url){out.innerHTML=`Couldn't verify dates automatically. <a class="link" target="_blank" rel="noopener" href="${safe(f.deeplink.url)}">Open the council's own collection lookup</a>.`;return}throw new Error("No exact property was returned. Use postcode lookup and select your address first.")}
-    const url=`${UKBIN_API}/${encodeURIComponent(f.council)}/view/${encodeURIComponent(addr.uprn)}?postcode=${encodeURIComponent(postcode)}&address=${encodeURIComponent(addr.address||"")}`;
-    const vr=await fetch(url,{headers:{Accept:"application/json"}});if(!vr.ok)throw new Error("The council schedule could not be retrieved");const v=await vr.json();
-    if(v.deeplink?.url||!Array.isArray(v.dates)||!v.dates.length){const link=v.deeplink?.url||f.deeplink?.url;out.innerHTML=`The address was found, but dates could not be verified automatically.${link?` <a class="link" target="_blank" rel="noopener" href="${safe(link)}">Open official council lookup</a>`:""}`;return}
-    const bins=v.dates.map(d=>({name:d.name||d.type||d.bin||"Collection",date:d.date||d.collection_date||d.next_collection,color:colorForBin(d.name||d.type||d.bin||""),waste:"Council data",emoji:"♻"})).filter(b=>b.date);if(!bins.length)throw new Error("No usable collection dates were returned");
-    const p=activeProfile();if(!p){toast("Save this address first, then check dates.");return}p.schedule={kind:"ukbin-api",confirmed:true,source:"UK Bin Day API",checkedAt:new Date().toISOString(),bins};persist();render();
-    out.innerHTML=`<strong>Collection data received</strong><p>Retrieved ${new Date().toLocaleString()}. Verify urgent or disrupted collections with the council.</p>${bins.map(b=>`<div style="padding:6px 0;border-bottom:1px solid var(--line)"><strong>${safe(b.name)}</strong> — ${safe(formatDate(b.date))}</div>`).join("")}`;
-  }catch(e){out.innerHTML=`<strong>Dates not verified.</strong><p>${safe(e.message||"The lookup service could not be reached from this device.")}</p><button class="btn secondary" style="margin-top:8px" onclick="openGlasgowCalendar()">Open Glasgow official calendar</button><p class="tiny">The external service may be unavailable or block browser requests. Bins Out will not show invented dates.</p>`;}
+    let addr=lookupAddresses.find(x=>String(x.address||"").toLowerCase().includes(house.toLowerCase())&&x.uprn);
+    if(!addr){
+      const ar=await fetch(`${UKBIN_API}/addresses/${encodeURIComponent(postcode.replace(/\s+/g,""))}`,{headers:{Accept:"application/json"}});if(!ar.ok)throw new Error(`Address lookup returned ${ar.status}`);
+      const raw=await ar.json(),list=Array.isArray(raw)?raw:(raw.addresses||raw.results||raw.data||[]);
+      const norm=list.map(a=>({...a,address:a.address||a.full_address||a.label||a.name||a.formatted_address||[a.building_name,a.building_number,a.street,a.post_town,a.postcode].filter(Boolean).join(", "),uprn:a.uprn||a.UPRN||a.property_uprn}));
+      addr=norm.find(x=>x.uprn&&house&&String(x.address||"").toLowerCase().includes(house.toLowerCase()))||norm.find(x=>x.uprn&&(!house||String(x.address||"").toLowerCase().startsWith(house.toLowerCase())));
+    }
+    if(!addr||!addr.uprn){out.innerHTML=`<strong>Couldn't verify the exact property.</strong><p>We won't guess collection dates. Search and select the exact property on Glasgow City Council's website, then try again.</p><button class="btn secondary" onclick="openGlasgowCalendar()">Open official Glasgow address search</button><p class="tiny">If the council page displays a UPRN in the calendar URL, the property has been identified by the council.</p>`;return;}
+    const vr=await fetch(`${UKBIN_API}/lookup/${encodeURIComponent(addr.uprn)}`,{headers:{Accept:"application/json"}});if(!vr.ok)throw new Error(`Collection service returned ${vr.status}`);
+    const v=await vr.json();
+    const rawDates=Array.isArray(v)?v:(v.dates||v.collections||v.collection_dates||v.results||v.data||[]);
+    const bins=rawDates.map(d=>{const name=d.name||d.type||d.bin||d.waste_type||d.service_name||d.title||"Collection";return{name,date:d.date||d.collection_date||d.next_collection||d.nextCollection||d.next_collection_date,color:colorForBin(name),waste:d.waste||d.description||"Council collection",emoji:"♻"}}).filter(b=>b.date);
+    if(!bins.length){const msg=v.message||v.error||"The service returned no dated collections for this property.";out.innerHTML=`<strong>Property found, but dates weren't verified.</strong><p>${safe(msg)}</p><button class="btn secondary" onclick="openGlasgowCalendar()">Open official Glasgow calendar</button>`;return;}
+    bins.sort((a,b)=>new Date(a.date)-new Date(b.date));
+    const p=activeProfile();if(!p){toast("Save this address first, then check dates.");return}p.schedule={kind:"ukbin-api",confirmed:true,source:"UKBinDay API (property UPRN)",uprn:String(addr.uprn),checkedAt:new Date().toISOString(),bins};persist();render();
+    out.innerHTML=`<strong>Collection data received for ${safe(addr.address||house)}.</strong><p>Retrieved ${new Date().toLocaleString()}. These are provider-returned dates for the matched property. Check the council for disruption notices.</p>${bins.map(b=>`<div style="padding:6px 0;border-bottom:1px solid var(--line)"><strong>${safe(b.name)}</strong> — ${safe(formatDate(b.date))}</div>`).join("")}`;
+  }catch(e){out.innerHTML=`<strong>Dates not verified.</strong><p>${safe(e.message||"The collection service could not be reached from this device.")}</p><p>The official Glasgow calendar is still available. Bins Out will not show invented dates as real collections.</p><button class="btn secondary" onclick="openGlasgowCalendar()">Open Glasgow official calendar</button><p class="tiny">If the browser blocks the data service, a server-side connector will be needed; this build does not pretend that has been deployed.</p>`;}
   finally{btn.disabled=false;btn.textContent="Check collection dates"}
 }
 function colorForBin(name){const n=name.toLowerCase();if(n.includes("brown")||n.includes("garden"))return"brown";if(n.includes("blue")||n.includes("paper"))return"blue";if(n.includes("food")||n.includes("glass"))return"green";if(n.includes("general")||n.includes("grey")||n.includes("black"))return"grey";return"blue"}

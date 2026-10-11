@@ -30,7 +30,7 @@
  </div>
  <div class="card"><div class="sectionhead"><h2>Your households</h2><span class="small" id="profileCount">1 saved</span></div>
   <div class="field"><label for="profileSelect">Active household</label><select id="profileSelect" onchange="switchProfile(this.value)"></select></div>
-  <div class="row"><button class="btn" onclick="addProfile()">＋ Add household</button><button class="btn secondary" onclick="deleteProfile()">Delete active</button></div>
+  <div class="row"><button class="btn" onclick="addProfile()">＋ Add household</button><button id="deleteActiveBtn" class="btn secondary" onclick="deleteProfile()" disabled>Delete active</button></div>
   <div class="tiny" style="margin-top:10px">Each household keeps its own UK address, schedule status and reminder preferences on this device.</div>
  </div>
  <div class="card"><div class="sectionhead"><h2>Quick reminder</h2><span class="small" id="reminderLabel">7:00 pm</span></div><div style="font-size:14px">We'll help you remember the evening before collection.</div><div class="notice"><strong>Current status:</strong> Addresses and preferences are saved on this device. Automatic council-data connections and real background notifications are not active yet.</div><button class="btn secondary" style="margin-top:13px" onclick="showTab('reminders')">Set reminder preferences</button></div>
@@ -39,7 +39,7 @@
  <div class="card">
   <div class="sectionhead"><h2>Saved addresses</h2><span class="status" id="savedAddressCount">0 saved</span></div>
   <p class="small" style="margin-top:0">Your saved properties appear here. Tap Use to switch the active household, or Edit to load its details into the form.</p>
-  <div id="savedAddressList" class="empty">No addresses saved yet. Add one above.</div>
+  <div id="savedAddressList" class="empty">No saved addresses yet. Use the form below whenever you are ready to add one.</div>
  </div>
  <div class="card"><div class="sectionhead"><h2>Find your household</h2><span class="small">UK homes only</span></div>
   <div class="field"><label for="country">Where in the UK is this property?</label><select id="country"><option value="England">England</option><option value="Scotland">Scotland</option><option value="Wales">Wales</option><option value="Northern Ireland">Northern Ireland</option></select></div>
@@ -81,10 +81,17 @@ function makeId(){return "hh-"+Date.now().toString(36)+"-"+Math.random().toStrin
 function activeProfile(){return state.profiles.find(p=>p.id===state.activeProfileId)||state.profiles[0]||null}
 function ensureProfiles(){
   if(!Array.isArray(state.profiles))state.profiles=[];
-  if(!state.profiles.length){
+  // Migrate genuinely old single-household data, but do not recreate a profile
+  // when the user intentionally deleted their last household.
+  if(!state.profiles.length && (state.address || state.schedule)){
     const oldAddress=state.address||null;
     state.profiles=[{id:makeId(),name:oldAddress?[oldAddress.house,oldAddress.postcode].filter(Boolean).join(" · "):"My household",address:oldAddress,schedule:state.schedule||null,reminders:{...defaultReminders,...(state.reminders||{})}}];
     state.activeProfileId=state.profiles[0].id;
+  }
+  if(!state.profiles.length){
+    state.activeProfileId=null;
+    syncLegacy();
+    return;
   }
   if(!state.activeProfileId||!state.profiles.some(p=>p.id===state.activeProfileId))state.activeProfileId=state.profiles[0].id;
   state.profiles=state.profiles.map(p=>({...p,name:p.name||"My household",address:p.address||null,schedule:p.schedule||null,reminders:{...defaultReminders,...(p.reminders||{})}}));
@@ -102,7 +109,12 @@ function load(){
   }catch(e){console.warn(e);state={profiles:[],activeProfileId:null};ensureProfiles();loadActiveIntoForm();render()}
 }
 function loadActiveIntoForm(){
-  const p=activeProfile(); if(!p)return;
+  const p=activeProfile();
+  if(!p){
+    $("house").value="";$("postcode").value="";$("area").value="";$("country").value="England";$("providerUrl").value="";
+    $("time").value=defaultReminders.time;$("enabled").checked=defaultReminders.enabled;$("details").checked=defaultReminders.details;
+    return;
+  }
   const a=p.address||{};
   $("house").value=a.house||"";$("postcode").value=a.postcode||"";$("area").value=a.area||"";const oldRegion=a.country||"England";$("country").value=["England","Scotland","Wales","Northern Ireland"].includes(oldRegion)?oldRegion:"England";$("providerUrl").value=a.providerUrl||"";
   const r={...defaultReminders,...(p.reminders||{})};
@@ -113,14 +125,16 @@ function refreshProfileSelect(){
   const p=activeProfile();
   sel.innerHTML=state.profiles.map(x=>`<option value="${safe(x.id)}" ${x.id===p?.id?"selected":""}>${safe(x.name||"My household")}${x.address?"":" (address needed)"}</option>`).join("");
   $("profileCount").textContent=`${state.profiles.length} saved`;
+  if(!state.profiles.length)sel.innerHTML='<option value="">No household saved</option>';
   $("profileSelect").disabled=state.profiles.length<2;
+  const del=$("deleteActiveBtn");if(del)del.disabled=!state.profiles.length;
   renderSavedAddresses();
 }
 function renderSavedAddresses(){
   const list=$("savedAddressList"); if(!list)return;
   const profiles=state.profiles.filter(p=>p.address);
   $("savedAddressCount").textContent=`${profiles.length} saved`;
-  if(!profiles.length){list.className="empty";list.textContent="No addresses saved yet. Add one above.";return}
+  if(!profiles.length){list.className="empty";list.textContent="No saved addresses yet. Use the form below whenever you are ready to add one.";return}
   list.className="";
   list.innerHTML=profiles.map(p=>{
     const a=p.address, active=p.id===state.activeProfileId;
@@ -155,25 +169,28 @@ function editProfile(id){
 }
 function deleteSpecificProfile(id){
   const p=state.profiles.find(x=>x.id===id);if(!p)return;
-  if(state.profiles.length<=1){toast("You need to keep one household. You can edit its address instead.");return}
   if(!confirm(`Delete the saved address "${[p.address?.house,p.address?.postcode].filter(Boolean).join(" ")}" and its schedule and reminders?`))return;
   state.profiles=state.profiles.filter(x=>x.id!==id);
-  if(state.activeProfileId===id)state.activeProfileId=state.profiles[0].id;
-  persist();loadActiveIntoForm();render();toast("Saved address deleted.");
+  if(state.activeProfileId===id)state.activeProfileId=state.profiles[0]?.id||null;
+  persist();loadActiveIntoForm();render();toast(state.profiles.length?"Saved address deleted.":"Last address deleted. Bins Out is now empty and ready for a new address.");
 }
 function addProfile(){
   const p={id:makeId(),name:"New household",address:null,schedule:null,reminders:{...defaultReminders}};
   state.profiles.push(p);state.activeProfileId=p.id;persist();loadActiveIntoForm();render();showTab("setup");$("house").focus();toast("New household created. Add its address.");
 }
 function deleteProfile(){
-  if(state.profiles.length<=1){toast("Keep at least one household. You can edit its address instead.");return}
-  const p=activeProfile();if(!confirm(`Delete "${p?.name||"this household"}" and its saved settings from this device?`))return;
-  state.profiles=state.profiles.filter(x=>x.id!==p.id);state.activeProfileId=state.profiles[0].id;syncLegacy();persist();loadActiveIntoForm();render();toast("Household deleted.");
+  const p=activeProfile();if(!p){toast("There is no active household to delete.");return}
+  if(!confirm(`Delete "${p?.name||"this household"}" and its saved settings from this device?`))return;
+  state.profiles=state.profiles.filter(x=>x.id!==p.id);state.activeProfileId=state.profiles[0]?.id||null;syncLegacy();persist();loadActiveIntoForm();render();toast(state.profiles.length?"Household deleted.":"Last household deleted. Bins Out is now empty and ready for a new address.");
 }
 function saveAddress(){
   let house=$("house").value.trim(),postcode=$("postcode").value.trim();
   if(!house||!postcode){toast("Add both a house number/name and postcode first.");return}
-  const p=activeProfile();
+  let p=activeProfile();
+  if(!p){
+    p={id:makeId(),name:"My household",address:null,schedule:null,reminders:{...defaultReminders}};
+    state.profiles.push(p);state.activeProfileId=p.id;
+  }
   const nextAddress={house,postcode,area:$("area").value.trim(),country:$("country").value,providerUrl:$("providerUrl").value.trim()};
   const previous=p.address||{};
   const addressChanged=house.toLowerCase()!==String(previous.house||"").toLowerCase()
@@ -186,7 +203,7 @@ function saveAddress(){
   toast(addressChanged?"Address saved. Check the official council page to confirm its schedule.":"Address details updated. Existing schedule status kept.");
 }
 function loadDemo(){
-  const p=activeProfile();if(!p)return;
+  const p=activeProfile();if(!p){toast("Add a household first to preview sample bins.");showTab("setup");return;}
   p.schedule={...demoSchedule,confirmed:false,bins:demoSchedule.bins.map(b=>({...b}))};
   persist();render();showTab("home");toast("Sample schedule loaded for this household only.");
 }
@@ -204,14 +221,16 @@ function render(){
   }else{
     $("nextDate").textContent=a?"No verified collection dates yet":"Add your address";
     $("binList").className="empty";
-    $("binList").innerHTML='No verified collection schedule is connected to this household yet. Your address and preferences are saved. Open the official council page to check your dates; Bins Out will not guess them.<br><button class="btn secondary" style="margin-top:12px" onclick="showTab(\'setup\')">Review address</button><button class="btn secondary" style="margin-top:12px" onclick="loadDemo()">Preview sample bins</button>';
+    $("binList").innerHTML=p
+      ? 'No verified collection schedule is connected to this household yet. Your address and preferences are saved. Open the official council page to check your dates; Bins Out will not guess them.<br><button class="btn secondary" style="margin-top:12px" onclick="showTab(\'setup\')">Review address</button><button class="btn secondary" style="margin-top:12px" onclick="loadDemo()">Preview sample bins</button>'
+      : 'No household saved. Bins Out is ready when you are.<br><button class="btn secondary" style="margin-top:12px" onclick="addProfile()">＋ Add your first address</button>';
   }
   const activeReminder=activeProfile()?.reminders||defaultReminders;
   $("reminderLabel").textContent=activeReminder.time||"19:00";
   updatePreview();
 }
 function safe(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
-function saveReminders(){const p=activeProfile();p.reminders={time:$("time").value,enabled:$("enabled").checked,details:$("details").checked};persist();render();toast("Reminder preferences saved for this household.");}
+function saveReminders(){const p=activeProfile();if(!p){toast("Add a household before saving its reminder preferences.");showTab("setup");return}p.reminders={time:$("time").value,enabled:$("enabled").checked,details:$("details").checked};persist();render();toast("Reminder preferences saved for this household.");}
 function updatePreview(){const p=activeProfile();const r={...defaultReminders,...(p?.reminders||{})};const time=r.time||"19:00";let [h,m]=time.split(":").map(Number);let fmt=new Date(2000,0,1,h,m).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});const bins=p?.schedule?.bins||[];const suffix=r.details&&bins.length?" Collection bins in this profile: "+bins.map(b=>b.name).join(", ")+".":"";$("preview").innerHTML=`🗑️ <strong>Bins Out (${safe(fmt)}):</strong> ${r.enabled?"Reminder preference is ON.":"Reminder preference is OFF."}${safe(suffix)} <span style="display:block;margin-top:6px">Preview only — no notification has been scheduled or sent.</span>`;}
 function testReminder(){updatePreview();$("modalTitle").textContent="Your reminder preview";$("modalText").textContent=$("preview").innerText; $("modalBack").classList.remove("hidden");}
 function closeModal(){$("modalBack").classList.add("hidden")}

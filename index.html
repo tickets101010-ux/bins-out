@@ -325,10 +325,16 @@ function render(){
     $("binList").innerHTML=s.bins.filter(b=>{const dt=new Date(b.date+"T12:00:00");return !Number.isNaN(dt.getTime())&&dt>=new Date(new Date().toDateString())}).map(b=>`<div class="bin ${safe(b.color)}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name)}</strong><br><small>${safe(b.date?formatDate(b.date):b.waste||"Collection")}</small></div></div>`).join("") + (s.kind==="council-calendar"?'<div class="notice" style="grid-column:1/-1"><strong>Verified council dates</strong><br>Transcribed from the council checker screenshots. Schedule currently confirmed through Wednesday 25 November 2026; later dates are not loaded yet.</div>':"");
   }else{
     $("nextDate").textContent=a?"No verified collection dates yet":"Add your address";
-    $("binList").className="empty";
-    $("binList").innerHTML=p
-      ? 'No verified collection schedule is connected to this household yet. Your address and preferences are saved. Use the address lookup below to check the council source. Bins Out will not display sample dates as real collections.<br><button class="btn secondary" style="margin-top:12px" onclick="showTab(\'setup\')">Review address</button>'
-      : 'No household saved. Bins Out is ready when you are.<br><button class="btn secondary" style="margin-top:12px" onclick="addProfile()">＋ Add your first address</button>';
+    // Keep the bin illustrations visible even before a real schedule is connected.
+    // These are clearly labelled as examples and never imply collection dates.
+    $("binList").className="bins";
+    $("binList").innerHTML=[
+      {name:"Recycling",color:"blue",waste:"Paper, card & cans",emoji:"♻"},
+      {name:"General waste",color:"grey",waste:"Non-recyclable rubbish",emoji:"🗑️"},
+      {name:"Food waste",color:"green",waste:"Food scraps",emoji:"🍃"}
+    ].map(b=>`<div class="bin ${b.color}"><div class="emoji">${b.emoji}</div><div><strong>${b.name}</strong><br><small>${b.waste}</small></div></div>`).join("")
+      + '<div class="notice" style="grid-column:1/-1"><strong>Example bin types</strong><br>These graphics are illustrative only. Add and verify a household schedule to see its actual collection dates.</div>'
+      + (p ? '<button class="btn secondary" style="grid-column:1/-1" onclick="showTab(\'setup\')">Review address and collection dates</button>' : '<button class="btn secondary" style="grid-column:1/-1" onclick="addProfile()">＋ Add your first address</button>');
   }
   const activeReminder=activeProfile()?.reminders||defaultReminders;
   $("reminderLabel").textContent=activeReminder.time||"19:00";

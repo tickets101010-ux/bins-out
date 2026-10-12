@@ -242,7 +242,16 @@ async function lookupPostcode(){
   whenIsBinsRequiredInput=raw.required_input||"property";const council=raw.council?.name||raw.council?.id||"your local council";$("area").value=raw.council?.name||$("area").value;$("ladCode").value=raw.council?.id||$("ladCode").value;lookupAddresses=Array.isArray(raw.candidates)?raw.candidates:[];selectedWhenIsBinsPropertyId="";
   if(lookupAddresses.length){out.innerHTML='<strong>Choose your exact address</strong><p class="small">Council source: '+safe(council)+'. Select your own property below.</p><div style="display:grid;gap:8px;margin-top:10px">'+lookupAddresses.map((a,i)=>`<button class="btn secondary" style="text-align:left" onclick="selectAddress(${i})">${safe(a.label||a.address||"Address option "+(i+1))}</button>`).join("")+'</div>';return}
   out.innerHTML=`<strong>${safe(council)} found.</strong><p>${safe(raw.detail||"Enter the exact house number or first line of your address, then tap Check collection dates.")}</p>${raw.council?.lookup_url?`<p><a href="${safe(raw.council.lookup_url)}" target="_blank" rel="noopener">Open official council bin checker</a></p>`:""}`;
- }catch(e){out.innerHTML=`<strong>Address search couldn't complete.</strong><p>${safe(e.message||"The address service could not be reached.")}</p><p>Your saved household and dates have not been changed.</p>`}
+ }catch(e){
+  try{
+   const fallback=await fetch(CONNECTOR_URL+"/find?postcode="+encodeURIComponent(postcode),{headers:{Accept:"application/json"}});const legacy=await fallback.json();
+   if(!fallback.ok)throw Error(legacy.detail||legacy.error||("Fallback lookup returned "+fallback.status));
+   const council=legacy.council_name||(typeof legacy.council==="string"?legacy.council:(legacy.council&&legacy.council.name))||legacy.lad||"";
+   const lad=(typeof legacy.council==="string"?legacy.council:(legacy.council&&legacy.council.id))||legacy.lad||"";
+   if(lad)$("ladCode").value=lad;if(council)$("area").value=council;lookupAddresses=Array.isArray(legacy.candidates)?legacy.candidates:[];selectedWhenIsBinsPropertyId="";
+   out.innerHTML="<strong>Fallback council lookup succeeded.</strong><p>"+safe(council||lad||"Council found")+"</p><p>The address list could not be confirmed. Enter your house number and UPRN below, then check collection dates.</p><p>Your saved household and dates have not been changed.</p>";
+  }catch(fallbackError){out.innerHTML="<strong>Address search couldn't complete.</strong><p>"+safe(fallbackError.message||e.message||"The address service could not be reached.")+"</p><p>Your saved household and dates have not been changed.</p>"}
+ }
  finally{btn.disabled=false;btn.textContent="Find address by postcode"}
 }
 function selectAddress(i){const a=lookupAddresses[i];if(!a)return;selectedWhenIsBinsPropertyId=String(a.id||"");const label=String(a.label||a.address||"");const parts=label.split(",").map(x=>x.trim());$("house").value=parts[0]||label;if(parts.length>1)$("area").value=parts.slice(1,-1).join(", ")||$("area").value;$("lookupResults").innerHTML=`<strong>Address selected</strong><p>${safe(label)}</p><p>Tap Check collection dates to check this exact property.</p>`;toast("Exact address selected.")}

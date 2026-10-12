@@ -87,6 +87,7 @@ const UKBIN_API="https://ukbinday.co.uk/api/v2";
 let CONNECTOR_URL=localStorage.getItem("binsOutConnectorUrl")||"https://bins-out-connector.tickets101010.workers.dev";
 let lookupAddresses=[],selectedWhenIsBinsPropertyId="",whenIsBinsRequiredInput="property";
 let state={profiles:[],activeProfileId:null};
+let editingExistingProfile=false;
 function makeId(){return "hh-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,7)}
 function activeProfile(){return state.profiles.find(p=>p.id===state.activeProfileId)||state.profiles[0]||null}
 function ensureProfiles(){
@@ -206,15 +207,15 @@ function showTab(tab){document.querySelectorAll(".tab").forEach(b=>b.classList.t
 document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>showTab(b.dataset.tab)));
 function switchProfile(id){
   if(!state.profiles.some(p=>p.id===id))return;
-  state.activeProfileId=id;syncLegacy();persist();loadActiveIntoForm();render();toast("Switched household.");
+  editingExistingProfile=false;state.activeProfileId=id;syncLegacy();persist();loadActiveIntoForm();render();toast("Switched household.");
 }
 function useProfile(id){
   if(!state.profiles.some(p=>p.id===id))return;
-  state.activeProfileId=id;persist();loadActiveIntoForm();render();showTab("home");toast("Address selected. Its own schedule and reminders are now active.");
+  editingExistingProfile=false;state.activeProfileId=id;persist();loadActiveIntoForm();render();showTab("home");toast("Address selected. Its own schedule and reminders are now active.");
 }
 function editProfile(id){
   if(!state.profiles.some(p=>p.id===id))return;
-  state.activeProfileId=id;persist();loadActiveIntoForm();render();showTab("setup");$("house").focus();toast("Address loaded into the form. Save changes when finished.");
+  editingExistingProfile=true;state.activeProfileId=id;persist();loadActiveIntoForm();render();showTab("setup");$("house").focus();toast("Address loaded into the form. Save changes when finished.");
 }
 function deleteSpecificProfile(id){
   const p=state.profiles.find(x=>x.id===id);if(!p)return;
@@ -224,6 +225,7 @@ function deleteSpecificProfile(id){
   persist();loadActiveIntoForm();render();toast(state.profiles.length?"Saved address deleted.":"Last address deleted. Bins Out is now empty and ready for a new address.");
 }
 function addProfile(){
+  editingExistingProfile=false;
   const p={id:makeId(),name:"New household",address:null,schedule:null,reminders:{...defaultReminders}};
   state.profiles.push(p);state.activeProfileId=p.id;persist();loadActiveIntoForm();render();showTab("setup");$("house").focus();toast("New household created. Add its address.");
 }
@@ -240,17 +242,40 @@ async function lookupPostcode(){
   whenIsBinsRequiredInput=raw.required_input||"property";const council=raw.council?.name||raw.council?.id||"your local council";$("area").value=raw.council?.name||$("area").value;$("ladCode").value=raw.council?.id||$("ladCode").value;lookupAddresses=Array.isArray(raw.candidates)?raw.candidates:[];selectedWhenIsBinsPropertyId="";
   if(lookupAddresses.length){out.innerHTML='<strong>Choose your exact address</strong><p class="small">Council source: '+safe(council)+'. Select your own property below.</p><div style="display:grid;gap:8px;margin-top:10px">'+lookupAddresses.map((a,i)=>`<button class="btn secondary" style="text-align:left" onclick="selectAddress(${i})">${safe(a.label||a.address||"Address option "+(i+1))}</button>`).join("")+'</div>';return}
   out.innerHTML=`<strong>${safe(council)} found.</strong><p>${safe(raw.detail||"Enter the exact house number or first line of your address, then tap Check collection dates.")}</p>${raw.council?.lookup_url?`<p><a href="${safe(raw.council.lookup_url)}" target="_blank" rel="noopener">Open official council bin checker</a></p>`:""}`;
- }catch(e){out.innerHTML=`<strong>Address search couldn't complete.</strong><p>${safe(e.message||"The address service could not be reached.")}</p><p>Your saved household and dates have not been changed.</p>`}
+ }catch(e){
+  try{
+   const fallback=await fetch(CONNECTOR_URL+"/find?postcode="+encodeURIComponent(postcode),{headers:{Accept:"application/json"}});const legacy=await fallback.json();
+   if(!fallback.ok)throw Error(legacy.detail||legacy.error||("Fallback lookup returned "+fallback.status));
+   const council=legacy.council_name||(typeof legacy.council==="string"?legacy.council:(legacy.council&&legacy.council.name))||legacy.lad||"";
+   const lad=(typeof legacy.council==="string"?legacy.council:(legacy.council&&legacy.council.id))||legacy.lad||"";
+   if(lad)$("ladCode").value=lad;if(council)$("area").value=council;lookupAddresses=Array.isArray(legacy.candidates)?legacy.candidates:[];selectedWhenIsBinsPropertyId="";
+   out.innerHTML="<strong>Fallback council lookup succeeded.</strong><p>"+safe(council||lad||"Council found")+"</p><p>The address list could not be confirmed. Enter your house number and UPRN below, then check collection dates.</p><p>Your saved household and dates have not been changed.</p>";
+  }catch(fallbackError){out.innerHTML="<strong>Address search couldn't complete.</strong><p>"+safe(fallbackError.message||e.message||"The address service could not be reached.")+"</p><p>Your saved household and dates have not been changed.</p>"}
+ }
  finally{btn.disabled=false;btn.textContent="Find address by postcode"}
 }
 function selectAddress(i){const a=lookupAddresses[i];if(!a)return;selectedWhenIsBinsPropertyId=String(a.id||"");const label=String(a.label||a.address||"");const parts=label.split(",").map(x=>x.trim());$("house").value=parts[0]||label;if(parts.length>1)$("area").value=parts.slice(1,-1).join(", ")||$("area").value;$("lookupResults").innerHTML=`<strong>Address selected</strong><p>${safe(label)}</p><p>Tap Check collection dates to check this exact property.</p>`;toast("Exact address selected.")}
 function saveConnectorUrl(){const raw=$("connectorUrl").value.trim().replace(/\/$/,"");if(!raw){toast("Paste the deployed connector URL first.");return}try{const u=new URL(raw);if(u.protocol!=="https:")throw 0;CONNECTOR_URL=raw;localStorage.setItem("binsOutConnectorUrl",raw);toast("Connector URL saved on this device.")}catch(e){toast("Use the full https:// Worker URL.")}}
 
 function useLookupAddress(){const sel=$("addressChoice");const a=lookupAddresses[Number(sel?.value)];if(!a){toast("Choose an address first.");return}const label=a.address||a.label||a.name||"";const m=label.match(/^(.+?),\s*(.+)$/);if(m){$("house").value=m[1].trim();if(!( $("area") ).value)$("area").value=m[2].trim()}else $("house").value=label;toast("Address added to the form. Save it to keep this household.")}
+async function lookupUprnCollections(postcode,house,uprn,lad,out){
+ if(!/^\d{1,12}$/.test(uprn))throw Error("UPRN must contain 1–12 digits.");
+ if(!lad)throw Error("Council LAD code is missing. Tap Find address by postcode first, or enter the code returned by the council API.");
+ const params=new URLSearchParams({lad:lad,uprn:uprn,postcode:postcode});if(house)params.set("address",house);
+ const r=await fetch(CONNECTOR_URL+"/view?"+params.toString(),{headers:{Accept:"application/json"}});const v=await r.json();
+ if(!r.ok)throw Error(v.detail||v.error||"UPRN lookup returned "+r.status);
+ const rows=Array.isArray(v.dates)?v.dates:[];
+ const bins=rows.map(item=>{const date=typeof item==="string"?item:(item.date||item.collection_date||item.collectionDate||item.next_collection||"");const name=typeof item==="string"?"Collection":(item.bin_type||item.bin||item.waste_type||item.type||item.name||"Collection");const colour=typeof item==="string"?"":(item.bin_colour||item.bin_color||item.colour||item.color||"");return {name:String(name),date:String(date),color:colour?colorForBin(colour+" "+name):colorForBin(name),waste:String(name),emoji:"♻"};}).filter(b=>b.date);
+ if(!bins.length){const link=v.deeplink&&v.deeplink.url;out.innerHTML="<strong>No dated collections were returned.</strong><p>"+safe((v.deeplink&&v.deeplink.reason)||"The API could not confirm dates for this property.")+"</p>"+(link?"<p><a href=\""+safe(link)+"\" target=\"_blank\" rel=\"noopener\">Open official council checker</a></p>":"")+"<p>Your saved schedule has not been changed.</p>";return;}
+ bins.sort((a,b)=>new Date(a.date)-new Date(b.date));const p=activeProfile();if(!p)throw Error("Save this address first, then check dates.");
+ p.schedule={kind:"ukbin-api",confirmed:true,source:(v.deeplink&&v.deeplink.url)||"UK Bin Collection API (UPRN lookup)",retrievedAt:new Date().toISOString(),uprn:uprn,council:lad,bins:bins};persist();render();
+ out.innerHTML="<strong>Collection dates found using UPRN "+safe(uprn)+".</strong><p>"+bins.length+" dated collections loaded.</p>"+((v.deeplink&&v.deeplink.url)?"<p><a href=\""+safe(v.deeplink.url)+"\" target=\"_blank\" rel=\"noopener\">View council source</a></p>":"");toast("UPRN collection dates loaded.");
+}
 async function lookupCollections(){
- const postcode=$("postcode").value.trim().toUpperCase(),house=$("house").value.trim();if(!postcode){toast("Enter and search your full postcode first.");showTab("setup");return}if(!selectedWhenIsBinsPropertyId&&!house){toast("Select your address or enter your exact house number first.");$("house").focus();return}
+ const postcode=$("postcode").value.trim().toUpperCase(),house=$("house").value.trim(),uprn=$("uprn").value.trim(),lad=$("ladCode").value.trim();if(!postcode){toast("Enter and search your full postcode first.");showTab("setup");return}if(!selectedWhenIsBinsPropertyId&&!house){toast("Select your address or enter your exact house number first.");$("house").focus();return}
  const btn=$("collectionBtn"),out=$("collectionStatus");btn.disabled=true;btn.textContent="Checking…";out.textContent="Asking the council data service for this property's collection dates…";
  try{
+  if(uprn){await lookupUprnCollections(postcode,house,uprn,lad,out);return;}
   const payload={postcode};if(selectedWhenIsBinsPropertyId)payload.property_id=selectedWhenIsBinsPropertyId;else if(whenIsBinsRequiredInput==="none"){}else if(whenIsBinsRequiredInput==="property")payload.property=house;else if(whenIsBinsRequiredInput==="street")payload.street=house;else if(whenIsBinsRequiredInput==="road_and_locality"){payload.street=house;payload.locality=$("area").value.trim()}else if(["settlement","settlement_or_road"].includes(whenIsBinsRequiredInput))payload.locality=house;else if(whenIsBinsRequiredInput==="normal_weekday")payload.normal_weekday=house;else if(whenIsBinsRequiredInput==="normal_weekday_and_locality"){payload.normal_weekday=house;payload.locality=$("area").value.trim()}else if(whenIsBinsRequiredInput==="street_and_property"){payload.street=$("area").value.trim();payload.property=house}else throw Error("This council requires a different detail. Use its official checker link shown above.");
   const r=await fetch(`${CONNECTOR_URL}/lookups`,{method:"POST",headers:{"Accept":"application/json","Content-Type":"application/json","Idempotency-Key":crypto.randomUUID()},body:JSON.stringify(payload)});let v=await r.json();if(!r.ok)throw Error(v.detail||v.problem||`Lookup returned ${r.status}`);
   let rounds=0;while(["queued","running","partial"].includes(v.status)&&v.id&&rounds<24){if(v.status==="partial"&&v.result?.collections?.length)break;out.textContent=v.progress?.message||"The council is checking its calendar…";await new Promise(resolve=>setTimeout(resolve,5000));const sr=await fetch(`${CONNECTOR_URL}/status?id=${encodeURIComponent(v.id)}`,{headers:{Accept:"application/json"}});v=await sr.json();if(!sr.ok)throw Error(v.detail||v.problem||"Could not check lookup progress.");rounds++}
@@ -265,11 +290,10 @@ function saveAddress(){
   let house=$("house").value.trim(),postcode=$("postcode").value.trim();
   if(!house||!postcode){toast("Add both a house number/name and postcode first.");return}
   let p=activeProfile();
-  if(!p){
-    p={id:makeId(),name:"My household",address:null,schedule:null,reminders:{...defaultReminders}};
-    state.profiles.push(p);state.activeProfileId=p.id;
-  }
   const nextAddress={house,postcode,area:$("area").value.trim(),country:$("country").value,providerUrl:$("providerUrl").value.trim()};
+  const differsFromActive=!!(p&&p.address)&&(house.toLowerCase()!==String(p.address.house||"").toLowerCase()||postcode.replace(/\s+/g,"").toUpperCase()!==String(p.address.postcode||"").replace(/\s+/g,"").toUpperCase()||nextAddress.country!==String(p.address.country||"England"));
+  // Avoid silently replacing a saved household when the form contains a different property.
+  if(!p||(!editingExistingProfile&&differsFromActive)){p={id:makeId(),name:"New household",address:null,schedule:null,reminders:{...defaultReminders}};state.profiles.push(p);state.activeProfileId=p.id;}
   const previous=p.address||{};
   const addressChanged=house.toLowerCase()!==String(previous.house||"").toLowerCase()
     ||postcode.replace(/\s+/g,"").toUpperCase()!==String(previous.postcode||"").replace(/\s+/g,"").toUpperCase()
@@ -278,7 +302,7 @@ function saveAddress(){
   p.name=[house,postcode].filter(Boolean).join(" · ")||"My household";
   if(addressChanged)p.schedule=null;
   const loadedCouncilSchedule=attachCrossleesSchedule(p);
-  persist();render();showTab("home");
+  editingExistingProfile=false;persist();render();showTab("home");
   toast(loadedCouncilSchedule?"Address saved. Verified council dates loaded through 25 November 2026.":addressChanged?"Address saved. Check the official council page to confirm its schedule.":"Address details updated. Existing schedule status kept.");
 }
 function loadDemo(){

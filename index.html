@@ -317,23 +317,29 @@ function render(){
   refreshProfileSelect();
   $("dataStatus").textContent=s&&s.confirmed&&s.kind==="ukbin-api"?"LIVE SOURCE":s&&s.confirmed&&s.kind==="council-calendar"?"COUNCIL DATES":s?"SAMPLE ONLY":"NO DATA";
   $("addressLine").textContent=a?([a.house,a.postcode,a.area,a.country].filter(Boolean).join(", ")): "Add a UK address to get started.";
-  if(s&&s.confirmed===true&&["ukbin-api","council-calendar"].includes(s.kind)&&s.bins&&s.bins.length){
-    let d=new Date();d.setDate(d.getDate()+(s.dateOffset||1));
-    const next=s.confirmed&&["ukbin-api","council-calendar"].includes(s.kind)?s.bins.map(b=>new Date(b.date+"T12:00:00")).filter(x=>!Number.isNaN(x.getTime())&&x>=new Date(new Date().toDateString())).sort((a,b)=>a-b)[0]:null;
-    $("nextDate").textContent=( ["ukbin-api","council-calendar"].includes(s.kind))?(next?next.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}):"No upcoming dates in saved schedule"):(s.confirmed?d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"}):"Sample only — not your collection date");
+  const verifiedSchedule=!!(s&&s.confirmed===true&&["ukbin-api","council-calendar"].includes(s.kind)&&Array.isArray(s.bins)&&s.bins.length);
+  const todayStart=new Date(new Date().toDateString());
+  const upcomingBins=verifiedSchedule?s.bins.filter(b=>{const dt=new Date(String(b.date||"")+"T12:00:00");return !!b.date&&!Number.isNaN(dt.getTime())&&dt>=todayStart}):[];
+  if(verifiedSchedule&&upcomingBins.length){
+    const dates=upcomingBins.map(b=>b.date).sort((x,y)=>new Date(x+"T12:00:00")-new Date(y+"T12:00:00"));
+    const nextDate=new Date(dates[0]+"T12:00:00");
+    $("nextDate").textContent=nextDate.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});
     $("binList").className="bins";
-    $("binList").innerHTML=s.bins.filter(b=>{const dt=new Date(b.date+"T12:00:00");return !Number.isNaN(dt.getTime())&&dt>=new Date(new Date().toDateString())}).map(b=>`<div class="bin ${safe(b.color)}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name)}</strong><br><small>${safe(b.date?formatDate(b.date):b.waste||"Collection")}</small></div></div>`).join("") + (s.kind==="council-calendar"?'<div class="notice" style="grid-column:1/-1"><strong>Verified council dates</strong><br>Transcribed from the council checker screenshots. Schedule currently confirmed through Wednesday 25 November 2026; later dates are not loaded yet.</div>':"");
+    $("binList").innerHTML=upcomingBins.map(b=>`<div class="bin ${safe(b.color||"blue")}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name||"Collection")}</strong><br><small>${safe(formatDate(b.date))}</small></div></div>`).join("")
+      + (s.kind==="council-calendar"?'<div class="notice" style="grid-column:1/-1"><strong>Verified council dates</strong><br>Transcribed from the council checker screenshots. Schedule currently confirmed through Wednesday 25 November 2026; later dates are not loaded yet.</div>':"");
   }else{
-    $("nextDate").textContent=a?"No verified collection dates yet":"Add your address";
-    // Keep the bin illustrations visible even before a real schedule is connected.
-    // These are clearly labelled as examples and never imply collection dates.
-    $("binList").className="bins";
-    $("binList").innerHTML=[
+    const noFutureVerifiedDates=verifiedSchedule&&s.bins.length>0;
+    $("nextDate").textContent=noFutureVerifiedDates?"No upcoming dates in saved schedule":(a?"No verified collection dates yet":"Add your address");
+    const examples=[
       {name:"Recycling",color:"blue",waste:"Paper, card & cans",emoji:"♻"},
       {name:"General waste",color:"grey",waste:"Non-recyclable rubbish",emoji:"🗑️"},
       {name:"Food waste",color:"green",waste:"Food scraps",emoji:"🍃"}
-    ].map(b=>`<div class="bin ${b.color}"><div class="emoji">${b.emoji}</div><div><strong>${b.name}</strong><br><small>${b.waste}</small></div></div>`).join("")
-      + '<div class="notice" style="grid-column:1/-1"><strong>Example bin types</strong><br>These graphics are illustrative only. Add and verify a household schedule to see its actual collection dates.</div>'
+    ];
+    $("binList").className="bins";
+    $("binList").innerHTML=examples.map(b=>`<div class="bin ${b.color}"><div class="emoji">${b.emoji}</div><div><strong>${b.name}</strong><br><small>${b.waste}</small></div></div>`).join("")
+      + (noFutureVerifiedDates
+        ? '<div class="notice" style="grid-column:1/-1"><strong>No upcoming dates in this saved schedule</strong><br>These bin graphics are examples only. Your saved dates are kept, but there are no future collection dates to display. Check the council calendar for the latest dates.</div>'
+        : '<div class="notice" style="grid-column:1/-1"><strong>Example bin types</strong><br>These graphics are illustrative only. Add and verify a household schedule to see its actual collection dates.</div>')
       + (p ? '<button class="btn secondary" style="grid-column:1/-1" onclick="showTab(\'setup\')">Review address and collection dates</button>' : '<button class="btn secondary" style="grid-column:1/-1" onclick="addProfile()">＋ Add your first address</button>');
   }
   const activeReminder=activeProfile()?.reminders||defaultReminders;

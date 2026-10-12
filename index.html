@@ -51,7 +51,7 @@
   <div class="notice"><strong>Privacy first:</strong> The prototype stores this address only in your browser's local storage. Don't enter sensitive information on a shared device.</div>
  </div>
  <div class="card"><div class="sectionhead"><h2>Bin collection dates</h2><span class="status">Council schedule</span></div>
- <p style="font-size:13px;color:var(--muted);margin-top:0">For 58 Crosslees Drive, G46 7DS, collection dates confirmed from the council checker screenshots are loaded through 25 November 2026. Automated lookups are still blocked by the council website; later dates need confirmation.</p>
+ <p style="font-size:13px;color:var(--muted);margin-top:0">Look up dates for the currently selected household. Bins Out keeps each property’s schedule separate and only labels dates as confirmed when a usable source returns dated collections.</p>
  <div class="field"><label for="ladCode">Council code (filled by postcode lookup)</label><input id="ladCode" placeholder="Search postcode first" autocapitalize="characters"></div>
  <div class="field"><label for="uprn">Exact property reference (UPRN, up to 12 digits)</label><input id="uprn" inputmode="numeric" pattern="[0-9]{1,12}" maxlength="12" placeholder="Enter UPRN from council property result"></div>
  <button class="btn" onclick="lookupCollections()" id="collectionBtn">Check collection dates</button>
@@ -75,7 +75,7 @@
  </div>
 </section>
 </main>
-<div class="footer">Bins Out · V9 · Verified Crosslees schedule test<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
+<div class="footer">Bins Out · V10 · Household-specific collection lookup<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <div id="modalBack" class="modalback hidden" onclick="if(event.target===this)closeModal()"><div class="modal"><h2 id="modalTitle">Reminder preview</h2><p id="modalText"></p><button class="btn" onclick="closeModal()">Got it</button></div></div>
@@ -254,7 +254,7 @@ async function lookupPostcode(){
  }
  finally{btn.disabled=false;btn.textContent="Find address by postcode"}
 }
-function selectAddress(i){const a=lookupAddresses[i];if(!a)return;selectedWhenIsBinsPropertyId=String(a.id||"");const label=String(a.label||a.address||"");const parts=label.split(",").map(x=>x.trim());$("house").value=parts[0]||label;if(parts.length>1)$("area").value=parts.slice(1,-1).join(", ")||$("area").value;$("lookupResults").innerHTML=`<strong>Address selected</strong><p>${safe(label)}</p><p>Tap Check collection dates to check this exact property.</p>`;toast("Exact address selected.")}
+function selectAddress(i){const a=lookupAddresses[i];if(!a)return;selectedWhenIsBinsPropertyId=String(a.id||"");const label=String(a.label||a.address||"");const parts=label.split(",").map(x=>x.trim());$("house").value=parts[0]||label;/* Keep the council field as the council returned by postcode lookup; never replace it with the street name. */$("lookupResults").innerHTML=`<strong>Address selected</strong><p>${safe(label)}</p><p>Tap Save address, then Check collection dates for this exact property.</p>`;toast("Exact address selected.")}
 function saveConnectorUrl(){const raw=$("connectorUrl").value.trim().replace(/\/$/,"");if(!raw){toast("Paste the deployed connector URL first.");return}try{const u=new URL(raw);if(u.protocol!=="https:")throw 0;CONNECTOR_URL=raw;localStorage.setItem("binsOutConnectorUrl",raw);toast("Connector URL saved on this device.")}catch(e){toast("Use the full https:// Worker URL.")}}
 
 function useLookupAddress(){const sel=$("addressChoice");const a=lookupAddresses[Number(sel?.value)];if(!a){toast("Choose an address first.");return}const label=a.address||a.label||a.name||"";const m=label.match(/^(.+?),\s*(.+)$/);if(m){$("house").value=m[1].trim();if(!( $("area") ).value)$("area").value=m[2].trim()}else $("house").value=label;toast("Address added to the form. Save it to keep this household.")}
@@ -273,6 +273,7 @@ async function lookupUprnCollections(postcode,house,uprn,lad,out){
 }
 async function lookupCollections(){
  const postcode=$("postcode").value.trim().toUpperCase(),house=$("house").value.trim(),uprn=$("uprn").value.trim(),lad=$("ladCode").value.trim();if(!postcode){toast("Enter and search your full postcode first.");showTab("setup");return}if(!selectedWhenIsBinsPropertyId&&!house){toast("Select your address or enter your exact house number first.");$("house").focus();return}
+ const current=activeProfile(),savedAddress=current?.address||{};const sameProperty=String(savedAddress.house||"").trim().toLowerCase()===house.toLowerCase()&&String(savedAddress.postcode||"").replace(/\s+/g,"").toUpperCase()===postcode.replace(/\s+/g,"").toUpperCase();if(!sameProperty){toast("Save this selected address first so its dates stay with the correct household.");return}
  const btn=$("collectionBtn"),out=$("collectionStatus");btn.disabled=true;btn.textContent="Checking…";out.textContent="Asking the council data service for this property's collection dates…";
  try{
   if(uprn){await lookupUprnCollections(postcode,house,uprn,lad,out);return;}

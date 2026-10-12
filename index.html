@@ -365,8 +365,9 @@ function render(){
     const nextDate=new Date(dates[0]+"T12:00:00");
     $("nextDate").textContent=nextDate.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});
     $("binList").className="bins";
-    $("binList").innerHTML=upcomingBins.map(b=>`<div class="bin ${safe(b.color||"blue")}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name||"Collection")}</strong><br><small>${safe(formatDate(b.date))}</small></div></div>`).join("")
-      + (s.kind==="council-calendar"?'<div class="notice" style="grid-column:1/-1"><strong>Verified council dates</strong><br>Transcribed from the council checker screenshots. Dates shown are from the council calendar screenshots supplied for this household.</div>':"");
+    const binCards=upcomingBins.map(b=>`<div class="bin ${safe(b.color||"blue")}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name||"Collection")}</strong><br><small>${safe(formatDate(b.date))}</small></div></div>`).join("");
+    $("binList").innerHTML=binCards + (s.kind==="council-calendar"?'<div class="notice" style="grid-column:1/-1"><strong>Verified council dates</strong><br>Dates transcribed from the council calendar supplied for this household.</div>':"");
+    if(!binCards){$("binList").className="bins";$("binList").innerHTML='<div class="notice" style="grid-column:1/-1"><strong>Schedule saved, but no upcoming bin cards could be displayed.</strong><br>Open My address and check the saved collection dates.</div>';}
   }else{
     const noFutureVerifiedDates=verifiedSchedule&&s.bins.length>0;
     $("nextDate").textContent=noFutureVerifiedDates?"No upcoming dates in saved schedule":(a?"No verified collection dates yet":"Add your address");

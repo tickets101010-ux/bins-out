@@ -211,7 +211,7 @@ function switchProfile(id){
 }
 function useProfile(id){
   if(!state.profiles.some(p=>p.id===id))return;
-  state.activeProfileId=id;persist();loadActiveIntoForm();render();showTab("home");toast("Address selected. Its own schedule and reminders are now active.");
+  editingExistingProfile=false;state.activeProfileId=id;persist();loadActiveIntoForm();render();showTab("home");toast("Address selected. Its own schedule and reminders are now active.");
 }
 function editProfile(id){
   if(!state.profiles.some(p=>p.id===id))return;

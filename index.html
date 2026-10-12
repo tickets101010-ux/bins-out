@@ -87,6 +87,7 @@ const UKBIN_API="https://ukbinday.co.uk/api/v2";
 let CONNECTOR_URL=localStorage.getItem("binsOutConnectorUrl")||"https://bins-out-connector.tickets101010.workers.dev";
 let lookupAddresses=[],selectedWhenIsBinsPropertyId="",whenIsBinsRequiredInput="property";
 let state={profiles:[],activeProfileId:null};
+let editingExistingProfile=false;
 function makeId(){return "hh-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,7)}
 function activeProfile(){return state.profiles.find(p=>p.id===state.activeProfileId)||state.profiles[0]||null}
 function ensureProfiles(){
@@ -206,7 +207,7 @@ function showTab(tab){document.querySelectorAll(".tab").forEach(b=>b.classList.t
 document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>showTab(b.dataset.tab)));
 function switchProfile(id){
   if(!state.profiles.some(p=>p.id===id))return;
-  state.activeProfileId=id;syncLegacy();persist();loadActiveIntoForm();render();toast("Switched household.");
+  editingExistingProfile=false;state.activeProfileId=id;syncLegacy();persist();loadActiveIntoForm();render();toast("Switched household.");
 }
 function useProfile(id){
   if(!state.profiles.some(p=>p.id===id))return;
@@ -214,7 +215,7 @@ function useProfile(id){
 }
 function editProfile(id){
   if(!state.profiles.some(p=>p.id===id))return;
-  state.activeProfileId=id;persist();loadActiveIntoForm();render();showTab("setup");$("house").focus();toast("Address loaded into the form. Save changes when finished.");
+  editingExistingProfile=true;state.activeProfileId=id;persist();loadActiveIntoForm();render();showTab("setup");$("house").focus();toast("Address loaded into the form. Save changes when finished.");
 }
 function deleteSpecificProfile(id){
   const p=state.profiles.find(x=>x.id===id);if(!p)return;
@@ -224,6 +225,7 @@ function deleteSpecificProfile(id){
   persist();loadActiveIntoForm();render();toast(state.profiles.length?"Saved address deleted.":"Last address deleted. Bins Out is now empty and ready for a new address.");
 }
 function addProfile(){
+  editingExistingProfile=false;
   const p={id:makeId(),name:"New household",address:null,schedule:null,reminders:{...defaultReminders}};
   state.profiles.push(p);state.activeProfileId=p.id;persist();loadActiveIntoForm();render();showTab("setup");$("house").focus();toast("New household created. Add its address.");
 }
@@ -265,11 +267,10 @@ function saveAddress(){
   let house=$("house").value.trim(),postcode=$("postcode").value.trim();
   if(!house||!postcode){toast("Add both a house number/name and postcode first.");return}
   let p=activeProfile();
-  if(!p){
-    p={id:makeId(),name:"My household",address:null,schedule:null,reminders:{...defaultReminders}};
-    state.profiles.push(p);state.activeProfileId=p.id;
-  }
   const nextAddress={house,postcode,area:$("area").value.trim(),country:$("country").value,providerUrl:$("providerUrl").value.trim()};
+  const differsFromActive=!!(p&&p.address)&&(house.toLowerCase()!==String(p.address.house||"").toLowerCase()||postcode.replace(/\s+/g,"").toUpperCase()!==String(p.address.postcode||"").replace(/\s+/g,"").toUpperCase()||nextAddress.country!==String(p.address.country||"England"));
+  // Avoid silently replacing a saved household when the form contains a different property.
+  if(!p||(!editingExistingProfile&&differsFromActive)){p={id:makeId(),name:"New household",address:null,schedule:null,reminders:{...defaultReminders}};state.profiles.push(p);state.activeProfileId=p.id;}
   const previous=p.address||{};
   const addressChanged=house.toLowerCase()!==String(previous.house||"").toLowerCase()
     ||postcode.replace(/\s+/g,"").toUpperCase()!==String(previous.postcode||"").replace(/\s+/g,"").toUpperCase()
@@ -278,7 +279,7 @@ function saveAddress(){
   p.name=[house,postcode].filter(Boolean).join(" · ")||"My household";
   if(addressChanged)p.schedule=null;
   const loadedCouncilSchedule=attachCrossleesSchedule(p);
-  persist();render();showTab("home");
+  editingExistingProfile=false;persist();render();showTab("home");
   toast(loadedCouncilSchedule?"Address saved. Verified council dates loaded through 25 November 2026.":addressChanged?"Address saved. Check the official council page to confirm its schedule.":"Address details updated. Existing schedule status kept.");
 }
 function loadDemo(){

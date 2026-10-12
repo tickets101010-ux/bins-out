@@ -126,6 +126,35 @@ const CROSSLEES_VERIFIED_SCHEDULE = {
     {name:"Green — Plastic recycling",date:"2026-11-25",color:"green",waste:"Plastic recycling",emoji:"🟩"}
   ]
 };
+const CUMBERLAND_VERIFIED_SCHEDULE = {
+  kind:"council-calendar", confirmed:true, source:"Cumberland Council calendar screenshots supplied by the user", checkedAt:"2026-10-12",
+  bins:[
+    {name:"Recycling",date:"2026-10-12",color:"blue",waste:"Recycling",emoji:"♻️"},
+    {name:"Domestic waste",date:"2026-10-19",color:"grey",waste:"Domestic waste",emoji:"🗑️"},
+    {name:"Green waste",date:"2026-10-19",color:"green",waste:"Green waste",emoji:"🍃"},
+    {name:"Recycling",date:"2026-10-26",color:"blue",waste:"Recycling",emoji:"♻️"},
+    {name:"Domestic waste",date:"2026-11-02",color:"grey",waste:"Domestic waste",emoji:"🗑️"},
+    {name:"Green waste",date:"2026-11-02",color:"green",waste:"Green waste",emoji:"🍃"},
+    {name:"Recycling",date:"2026-11-09",color:"blue",waste:"Recycling",emoji:"♻️"},
+    {name:"Domestic waste",date:"2026-11-16",color:"grey",waste:"Domestic waste",emoji:"🗑️"},
+    {name:"Green waste",date:"2026-11-16",color:"green",waste:"Green waste",emoji:"🍃"},
+    {name:"Recycling",date:"2026-11-23",color:"blue",waste:"Recycling",emoji:"♻️"},
+    {name:"Domestic waste",date:"2026-11-30",color:"grey",waste:"Domestic waste",emoji:"🗑️"},
+    {name:"Recycling",date:"2026-12-07",color:"blue",waste:"Recycling",emoji:"♻️"},
+    {name:"Domestic waste",date:"2026-12-14",color:"grey",waste:"Domestic waste",emoji:"🗑️"},
+    {name:"Recycling",date:"2026-12-21",color:"blue",waste:"Recycling",emoji:"♻️"},
+    {name:"Domestic waste",date:"2026-12-28",color:"grey",waste:"Domestic waste",emoji:"🗑️"},
+    {name:"Recycling",date:"2027-01-04",color:"blue",waste:"Recycling",emoji:"♻️"},
+    {name:"Domestic waste",date:"2027-01-11",color:"grey",waste:"Domestic waste",emoji:"🗑️"},
+    {name:"Recycling",date:"2027-01-18",color:"blue",waste:"Recycling",emoji:"♻️"},
+    {name:"Domestic waste",date:"2027-01-25",color:"grey",waste:"Domestic waste",emoji:"🗑️"},
+    {name:"Recycling",date:"2027-02-01",color:"blue",waste:"Recycling",emoji:"♻️"},
+    {name:"Domestic waste",date:"2027-02-08",color:"grey",waste:"Domestic waste",emoji:"🗑️"},
+    {name:"Recycling",date:"2027-02-15",color:"blue",waste:"Recycling",emoji:"♻️"},
+    {name:"Domestic waste",date:"2027-02-22",color:"grey",waste:"Domestic waste",emoji:"🗑️"}
+  ]
+};
+function isCumberlandAddress(a){if(!a)return false;const postcode=String(a.postcode||"").replace(/\s+/g,"").toUpperCase();const house=String(a.house||"").toLowerCase();return postcode==="CA26TT" && /hebden avenue/.test(house);}
 function isCrossleesAddress(a){if(!a)return false;const house=String(a.house||"").trim().toLowerCase();const postcode=String(a.postcode||"").replace(/\s+/g,"").toUpperCase();const area=String(a.area||"").toLowerCase();const country=String(a.country||"").toLowerCase();if(postcode!=="G467DS")return false;if(/58\s*crosslees\s*drive/.test(house))return true;return house==="58" && /east renfrewshire/.test(area) && /scotland/.test(country);}
 function attachCrossleesSchedule(profile){
   const saved=profile?.schedule;
@@ -145,6 +174,17 @@ function attachCrossleesSchedule(profile){
   }
   return false;
 }
+function attachCumberlandSchedule(profile){
+  const saved=profile?.schedule;
+  const hasUsableDates=Array.isArray(saved?.bins)&&saved.bins.some(b=>b?.date&&!Number.isNaN(new Date(String(b.date).length===10?b.date+"T12:00:00":b.date).getTime()));
+  const validProvider=["council-calendar","ukbin-api"].includes(saved?.kind)&&saved.confirmed===true&&hasUsableDates;
+  if(isCumberlandAddress(profile?.address)&&!validProvider){
+    profile.schedule=JSON.parse(JSON.stringify(CUMBERLAND_VERIFIED_SCHEDULE));
+    profile.address={...profile.address,area:profile.address.area||"Cumberland Council",country:"England"};
+    return true;
+  }
+  return false;
+}
 function load(){
   try{
     const saved=JSON.parse(localStorage.getItem("binsout-v1")||"{}");
@@ -152,7 +192,7 @@ function load(){
     ensureProfiles();
     let removedDemo=false; state.profiles=state.profiles.map(p=>{if(p.schedule && p.schedule.confirmed!==true){removedDemo=true;return {...p,schedule:null}}return p});
     let attachedCouncilSchedule=false;
-    state.profiles.forEach(p=>{if(attachCrossleesSchedule(p))attachedCouncilSchedule=true});
+    state.profiles.forEach(p=>{if(attachCrossleesSchedule(p)||attachCumberlandSchedule(p))attachedCouncilSchedule=true});
     if(removedDemo||attachedCouncilSchedule)persist();
     loadActiveIntoForm();
     render();
@@ -326,7 +366,7 @@ function render(){
     $("nextDate").textContent=nextDate.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});
     $("binList").className="bins";
     $("binList").innerHTML=upcomingBins.map(b=>`<div class="bin ${safe(b.color||"blue")}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name||"Collection")}</strong><br><small>${safe(formatDate(b.date))}</small></div></div>`).join("")
-      + (s.kind==="council-calendar"?'<div class="notice" style="grid-column:1/-1"><strong>Verified council dates</strong><br>Transcribed from the council checker screenshots. Schedule currently confirmed through Wednesday 25 November 2026; later dates are not loaded yet.</div>':"");
+      + (s.kind==="council-calendar"?'<div class="notice" style="grid-column:1/-1"><strong>Verified council dates</strong><br>Transcribed from the council checker screenshots. Dates shown are from the council calendar screenshots supplied for this household.</div>':"");
   }else{
     const noFutureVerifiedDates=verifiedSchedule&&s.bins.length>0;
     $("nextDate").textContent=noFutureVerifiedDates?"No upcoming dates in saved schedule":(a?"No verified collection dates yet":"Add your address");

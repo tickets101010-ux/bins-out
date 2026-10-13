@@ -8,6 +8,10 @@ export default {async fetch(request){
  const u=new URL(request.url),origin=request.headers.get("Origin")||"",h=cors(origin);
  if(request.method==="OPTIONS")return new Response(null,{status:204,headers:h});
  if(u.pathname==="/health"&&request.method==="GET")return json({ok:true,service:"Bins Out connector",addressProvider:"WhenIsBins",legacyProvider:UKBIN},200,h);
+ if(u.pathname==="/glasgow-calendar"&&request.method==="GET"){
+  const uprn=(u.searchParams.get("uprn")||"").trim();if(!/^\\d{1,12}$/.test(uprn))return json({problem:"invalid_uprn",detail:"A valid property UPRN is required."},400,h);
+  try{return await proxy(`https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN=${encodeURIComponent(uprn)}`,{headers:{"Accept":"text/html"}},h)}catch(e){return json({problem:"upstream_unavailable",detail:"Glasgow City Council calendar is temporarily unavailable."},502,h)}
+ }
  if(u.pathname==="/addresses"&&request.method==="GET"){
   const postcode=(u.searchParams.get("postcode")||"").trim();if(!postcode)return json({problem:"invalid_postcode",detail:"Enter a full UK postcode."},400,h);
   try{return await proxy(`${WHENISBINS}/addresses?postcode=${encodeURIComponent(postcode)}`,{headers:{Accept:"application/json"}},h)}catch(e){return json({problem:"upstream_unavailable",detail:"Address service is temporarily unavailable."},502,h)}

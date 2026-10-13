@@ -298,6 +298,26 @@ function selectAddress(i){const a=lookupAddresses[i];if(!a)return;selectedWhenIs
 function saveConnectorUrl(){const raw=$("connectorUrl").value.trim().replace(/\/$/,"");if(!raw){toast("Paste the deployed connector URL first.");return}try{const u=new URL(raw);if(u.protocol!=="https:")throw 0;CONNECTOR_URL=raw;localStorage.setItem("binsOutConnectorUrl",raw);toast("Connector URL saved on this device.")}catch(e){toast("Use the full https:// Worker URL.")}}
 
 function useLookupAddress(){const sel=$("addressChoice");const a=lookupAddresses[Number(sel?.value)];if(!a){toast("Choose an address first.");return}const label=a.address||a.label||a.name||"";const m=label.match(/^(.+?),\s*(.+)$/);if(m){$("house").value=m[1].trim();if(!( $("area") ).value)$("area").value=m[2].trim()}else $("house").value=label;toast("Address added to the form. Save it to keep this household.")}
+async function lookupGlasgowCalendar(uprn,house,postcode,out){
+ const r=await fetch(CONNECTOR_URL+"/glasgow-calendar?uprn="+encodeURIComponent(uprn),{headers:{Accept:"text/html"}});
+ const html=await r.text();if(!r.ok)throw Error("Glasgow council calendar returned "+r.status+".");
+ const doc=new DOMParser().parseFromString(html,"text/html"),body=doc.body?.innerText||doc.body?.textContent||"";
+ if(!/Refuse and Recycling Calendar/i.test(doc.title+" "+body)||/given key was not present/i.test(body))throw Error("Glasgow City Council did not return a usable calendar for this UPRN.");
+ const re=/Your next\s+(.+?)\s+Bin day is\s+(Today|(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+\d{4})/gi;
+ const bins=[];let m;
+ while((m=re.exec(body))!==null){
+  let raw=m[2].replace(/(\d)(st|nd|rd|th)\b/gi,"$1");
+  let d;if(/^Today$/i.test(raw)){d=new Date();d.setHours(12,0,0,0)}else d=new Date(raw+" 12:00:00");
+  if(!Number.isNaN(d.getTime()))bins.push({name:m[1].trim()+" Bin",date:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"),color:colorForBin(m[1]),waste:m[1].trim()+" collection",emoji:"♻"});
+ }
+ const unique=[...new Map(bins.map(b=>[b.name+"|"+b.date,b])).values()];
+ if(!unique.length)throw Error("Glasgow's calendar opened, but its collection dates could not be read safely. Open the official calendar to check them.");
+ const p=activeProfile();if(!p)throw Error("Save this address first, then check dates.");
+ unique.sort((a,b)=>a.date.localeCompare(b.date));
+ p.schedule={kind:"council-calendar",confirmed:true,source:"Glasgow City Council official calendar",sourceUrl:"https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN="+encodeURIComponent(uprn),retrievedAt:new Date().toISOString(),uprn,bins:unique};persist();render();
+ out.innerHTML="<strong>Glasgow council dates loaded.</strong><p>"+unique.length+" dated collections read from the official calendar for UPRN "+safe(uprn)+". Please compare the first dates with the council page once to confirm the calendar format.</p><p><a href=\""+safe(p.schedule.sourceUrl)+"\" target=\"_blank\" rel=\"noopener\">Open official council calendar</a></p>";
+ toast("Glasgow council dates loaded.");
+}
 async function lookupUprnCollections(postcode,house,uprn,lad,out){
  if(!/^\d{1,12}$/.test(uprn))throw Error("UPRN must contain 1–12 digits.");
  if(!lad)throw Error("Council LAD code is missing. Tap Find address by postcode first, or enter the code returned by the council API.");
@@ -316,6 +336,7 @@ async function lookupCollections(){
  const current=activeProfile(),savedAddress=current?.address||{};const sameProperty=String(savedAddress.house||"").trim().toLowerCase()===house.toLowerCase()&&String(savedAddress.postcode||"").replace(/\s+/g,"").toUpperCase()===postcode.replace(/\s+/g,"").toUpperCase();if(!sameProperty){toast("Save this selected address first so its dates stay with the correct household.");return}
  const btn=$("collectionBtn"),out=$("collectionStatus");btn.disabled=true;btn.textContent="Checking…";out.textContent="Asking the council data service for this property's collection dates…";
  try{
+  if(uprn && /glasgow/i.test([lad,$("area").value].join(" "))){await lookupGlasgowCalendar(uprn,house,postcode,out);return;}
   if(uprn){await lookupUprnCollections(postcode,house,uprn,lad,out);return;}
   const payload={postcode};if(selectedWhenIsBinsPropertyId)payload.property_id=selectedWhenIsBinsPropertyId;else if(whenIsBinsRequiredInput==="none"){}else if(whenIsBinsRequiredInput==="property")payload.property=house;else if(whenIsBinsRequiredInput==="street")payload.street=house;else if(whenIsBinsRequiredInput==="road_and_locality"){payload.street=house;payload.locality=$("area").value.trim()}else if(["settlement","settlement_or_road"].includes(whenIsBinsRequiredInput))payload.locality=house;else if(whenIsBinsRequiredInput==="normal_weekday")payload.normal_weekday=house;else if(whenIsBinsRequiredInput==="normal_weekday_and_locality"){payload.normal_weekday=house;payload.locality=$("area").value.trim()}else if(whenIsBinsRequiredInput==="street_and_property"){payload.street=$("area").value.trim();payload.property=house}else throw Error("This council requires a different detail. Use its official checker link shown above.");
   const r=await fetch(`${CONNECTOR_URL}/lookups`,{method:"POST",headers:{"Accept":"application/json","Content-Type":"application/json","Idempotency-Key":crypto.randomUUID()},body:JSON.stringify(payload)});let v=await r.json();if(!r.ok)throw Error(v.detail||v.problem||`Lookup returned ${r.status}`);

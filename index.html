@@ -334,10 +334,27 @@ function parseBinDate(value){
 }
 function formatDate(value){const d=parseBinDate(value);return d?d.toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short",year:"numeric"}):String(value??"Date to be confirmed")}
 function binColorClass(value,name){
+  const n=String(name||"").toLowerCase();
+  // Prefer the collection's meaning over stale or generic stored colours.
+  if(/brown|garden/.test(n))return "brown";
+  if(/food/.test(n))return "green";
+  if(/green waste|plastic/.test(n))return "green";
+  if(/domestic|general waste|rubbish|black|grey/.test(n))return "grey";
+  if(/recycl|paper|cardboard|cans/.test(n))return "blue";
   const allowed=["blue","green","grey","brown","red","yellow"];
   const raw=String(value||"").toLowerCase().trim();
   if(allowed.includes(raw))return raw;
-  return colorForBin(raw+" "+String(name||""));
+  return colorForBin(raw+" "+n);
+}
+function binEmoji(value,name){
+  const n=String(name||"").toLowerCase();
+  if(/brown|garden/.test(n))return "🟫";
+  if(/food/.test(n))return "🍃";
+  if(/green waste|plastic/.test(n))return "🟩";
+  if(/domestic|general waste|rubbish|black|grey/.test(n))return "🗑️";
+  if(/recycl|paper|cardboard|cans/.test(n))return "♻️";
+  const raw=String(value||"").trim();
+  return raw && raw!=="♻" && raw!=="♻️" ? raw : "♻️";
 }
 function saveAddress(){
   let house=$("house").value.trim(),postcode=$("postcode").value.trim();
@@ -382,7 +399,7 @@ function render(){
       binCards=upcomingBins.map(b=>{
         const name=safe(b?.name||b?.bin||"Collection");
         const color=typeof binColorClass==="function"?binColorClass(b?.color,name):"blue";
-        const emoji=safe(b?.emoji||"♻");
+        const emoji=safe(binEmoji(b?.emoji,name));
         const date=safe(formatDate(b?.date));
         return `<div class="bin ${color}"><div class="emoji">${emoji}</div><div><strong>${name}</strong><br><small>${date}</small></div></div>`;
       }).join("");

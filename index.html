@@ -377,9 +377,25 @@ function render(){
     const nextDate=dates[0];
     $("nextDate").textContent=nextDate.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});
     $("binList").className="bins";
-    const binCards=upcomingBins.map(b=>`<div class="bin ${binColorClass(b.color,b.name)}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name||"Collection")}</strong><br><small>${safe(formatDate(b.date))}</small></div></div>`).join("");
-    $("binList").innerHTML=binCards + (s.kind==="council-calendar"?'<div class="notice" style="grid-column:1/-1"><strong>Verified council dates</strong><br>Dates transcribed from the council calendar supplied for this household.</div>':"");
-    if(!binCards){$("binList").className="bins";$("binList").innerHTML='<div class="notice" style="grid-column:1/-1"><strong>Schedule saved, but no upcoming bin cards could be displayed.</strong><br>Open My address and check the saved collection dates.</div>';}
+    let binCards="";
+    try{
+      binCards=upcomingBins.map(b=>{
+        const name=safe(b?.name||b?.bin||"Collection");
+        const color=typeof binColorClass==="function"?binColorClass(b?.color,name):"blue";
+        const emoji=safe(b?.emoji||"♻");
+        const date=safe(formatDate(b?.date));
+        return `<div class="bin ${color}"><div class="emoji">${emoji}</div><div><strong>${name}</strong><br><small>${date}</small></div></div>`;
+      }).join("");
+    }catch(error){
+      console.error("Bins Out: collection cards failed to render",error);
+    }
+    if(binCards){
+      $("binList").className="bins";
+      $("binList").innerHTML=binCards+(s.kind==="council-calendar"?'<div class="notice" style="grid-column:1/-1"><strong>Verified council dates</strong><br>Dates transcribed from the council calendar supplied for this household.</div>':"");
+    }else{
+      $("binList").className="empty";
+      $("binList").textContent="Your schedule is saved, but its collection cards could not be displayed. Open My address to review the saved dates.";
+    }
   }else{
     const noFutureVerifiedDates=verifiedSchedule&&s.bins.length>0;
     $("nextDate").textContent=noFutureVerifiedDates?"No upcoming dates in saved schedule":(a?"No verified collection dates yet":"Add your address");

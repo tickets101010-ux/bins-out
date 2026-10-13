@@ -300,22 +300,27 @@ function saveConnectorUrl(){const raw=$("connectorUrl").value.trim().replace(/\/
 function useLookupAddress(){const sel=$("addressChoice");const a=lookupAddresses[Number(sel?.value)];if(!a){toast("Choose an address first.");return}const label=a.address||a.label||a.name||"";const m=label.match(/^(.+?),\s*(.+)$/);if(m){$("house").value=m[1].trim();if(!( $("area") ).value)$("area").value=m[2].trim()}else $("house").value=label;toast("Address added to the form. Save it to keep this household.")}
 async function lookupGlasgowCalendar(uprn,house,postcode,out){
  const r=await fetch(CONNECTOR_URL+"/glasgow-calendar?uprn="+encodeURIComponent(uprn),{headers:{Accept:"text/html"}});
- const html=await r.text();if(!r.ok)throw Error("Glasgow council calendar returned "+r.status+".");
+ const html=await r.text();if(!r.ok)throw Error("Glasgow council calendar route returned "+r.status+". The connector Worker must be deployed before this fallback can run.");
  const doc=new DOMParser().parseFromString(html,"text/html"),body=doc.body?.innerText||doc.body?.textContent||"";
- if(!/Refuse and Recycling Calendar/i.test(doc.title+" "+body)||/given key was not present/i.test(body))throw Error("Glasgow City Council did not return a usable calendar for this UPRN.");
- const re=/Your next\s+(.+?)\s+Bin day is\s+(Today|(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+\d{4})/gi;
- const bins=[];let m;
+ if(/given key was not present/i.test(body)||!/Refuse and Recycling Calendar/i.test(doc.title+" "+body))throw Error("Glasgow City Council did not return a usable calendar for this UPRN.");
+ const bins=[],seen=new Set();
+ const re=/Your next\s+([A-Za-z ]+?)\s+Bin day is\s+(Today|Tomorrow|(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+\d{4})/gi;
+ let m;
  while((m=re.exec(body))!==null){
-  let raw=m[2].replace(/(\d)(st|nd|rd|th)\b/gi,"$1");
-  let d;if(/^Today$/i.test(raw)){d=new Date();d.setHours(12,0,0,0)}else d=new Date(raw+" 12:00:00");
-  if(!Number.isNaN(d.getTime()))bins.push({name:m[1].trim()+" Bin",date:d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"),color:colorForBin(m[1]),waste:m[1].trim()+" collection",emoji:"♻"});
+  const name=m[1].trim()+" Bin";let d;
+  if(/^Today$/i.test(m[2])){d=new Date();d.setHours(12,0,0,0)}
+  else if(/^Tomorrow$/i.test(m[2])){d=new Date();d.setDate(d.getDate()+1);d.setHours(12,0,0,0)}
+  else {const raw=m[2].replace(/(\d)(st|nd|rd|th)\b/gi,"$1");d=new Date(raw+" 12:00:00")}
+  if(Number.isNaN(d?.getTime()))continue;
+  const date=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  if(seen.has(name+"|"+date))continue;seen.add(name+"|"+date);
+  bins.push({name,date,color:colorForBin(name),waste:name+" collection",emoji:"♻"});
  }
- const unique=[...new Map(bins.map(b=>[b.name+"|"+b.date,b])).values()];
- if(!unique.length)throw Error("Glasgow's calendar opened, but its collection dates could not be read safely. Open the official calendar to check them.");
+ if(!bins.length)throw Error("The council calendar opened, but no collection dates could be read safely. Your saved schedule is unchanged.");
  const p=activeProfile();if(!p)throw Error("Save this address first, then check dates.");
- unique.sort((a,b)=>a.date.localeCompare(b.date));
- p.schedule={kind:"council-calendar",confirmed:true,source:"Glasgow City Council official calendar",sourceUrl:"https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN="+encodeURIComponent(uprn),retrievedAt:new Date().toISOString(),uprn,bins:unique};persist();render();
- out.innerHTML="<strong>Glasgow council dates loaded.</strong><p>"+unique.length+" dated collections read from the official calendar for UPRN "+safe(uprn)+". Please compare the first dates with the council page once to confirm the calendar format.</p><p><a href=\""+safe(p.schedule.sourceUrl)+"\" target=\"_blank\" rel=\"noopener\">Open official council calendar</a></p>";
+ bins.sort((a,b)=>a.date.localeCompare(b.date));
+ p.schedule={kind:"council-calendar",confirmed:true,source:"Glasgow City Council official calendar",sourceUrl:"https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN="+encodeURIComponent(uprn),retrievedAt:new Date().toISOString(),uprn,bins};persist();render();
+ out.innerHTML="<strong>Glasgow council dates loaded.</strong><p>"+bins.length+" next collection dates read from the official calendar for UPRN "+safe(uprn)+". This is the next date for each bin type, not a full future calendar.</p><p><a href=\""+safe(p.schedule.sourceUrl)+"\" target=\"_blank\" rel=\"noopener\">Open official council calendar</a></p>";
  toast("Glasgow council dates loaded.");
 }
 async function lookupUprnCollections(postcode,house,uprn,lad,out){

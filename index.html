@@ -354,9 +354,9 @@ function saveAddress(){
   p.address=nextAddress;
   p.name=[house,postcode].filter(Boolean).join(" · ")||"My household";
   if(addressChanged)p.schedule=null;
-  const loadedCouncilSchedule=attachCrossleesSchedule(p);
+  const loadedCouncilSchedule=attachCrossleesSchedule(p)||attachCumberlandSchedule(p);
   editingExistingProfile=false;persist();render();showTab("home");
-  toast(loadedCouncilSchedule?"Address saved. Verified council dates loaded through 25 November 2026.":addressChanged?"Address saved. Check the official council page to confirm its schedule.":"Address details updated. Existing schedule status kept.");
+  toast(loadedCouncilSchedule?"Address saved. Matching council-calendar dates have been loaded.":addressChanged?"Address saved. Check the official council page to confirm its schedule.":"Address details updated. Existing schedule status kept.");
 }
 function loadDemo(){
   const p=activeProfile();if(!p){toast("Add a household first to preview sample bins.");showTab("setup");return;}

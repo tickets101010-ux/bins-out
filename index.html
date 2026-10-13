@@ -53,7 +53,7 @@
  <div class="card"><div class="sectionhead"><h2>Bin collection dates</h2><span class="status">Council schedule</span></div>
  <p style="font-size:13px;color:var(--muted);margin-top:0">Look up dates for the currently selected household. Bins Out keeps each property’s schedule separate and only labels dates as confirmed when a usable source returns dated collections.</p>
  <div class="field"><label for="ladCode">Council code (filled by postcode lookup)</label><input id="ladCode" placeholder="Search postcode first" autocapitalize="characters"></div>
- <div class="field"><label for="uprn">Exact property reference (UPRN, up to 12 digits)</label><input id="uprn" inputmode="numeric" pattern="[0-9]{1,12}" maxlength="12" placeholder="Enter UPRN from council property result"></div>
+ <div class="field"><label for="uprn">UPRN (optional)</label><input id="uprn" inputmode="numeric" pattern="[0-9]{1,12}" maxlength="12" placeholder="Leave blank unless the council requires it"><small class="small">Most addresses can be tried without entering a UPRN.</small></div>
  <button class="btn" onclick="lookupCollections()" id="collectionBtn">Check collection dates</button>
  <button class="btn secondary" style="margin-top:12px" onclick="openOfficialGuide()">Open official council calendar</button>
  <div class="notice" id="collectionStatus" aria-live="polite">No collection lookup has been run for this address yet.</div>
@@ -306,10 +306,11 @@ async function selectAddress(i){
  const candidateUprn=String(a.uprn||a.UPRN||a.property_uprn||"").trim();
  $("uprn").value=/^\d{1,12}$/.test(candidateUprn)?candidateUprn:"";
  if($("uprn").value){
-  $("lookupResults").innerHTML="<strong>Address selected and UPRN supplied.</strong><p>"+safe(label)+"</p><p>UPRN: "+safe($("uprn").value)+"</p><p>Tap Save address, then Check collection dates.</p>";
-  toast("Exact address and UPRN selected.");return;
+  $("lookupResults").innerHTML="<strong>Address selected.</strong><p>"+safe(label)+"</p><p>Optional UPRN: "+safe($("uprn").value)+"</p><p>Tap Save address, then Check collection dates. If the council lookup works without a UPRN, leave this field blank.</p>";
+  toast("Address selected.");return;
  }
- await resolveUprnForSelectedAddress(label);
+ $("lookupResults").innerHTML="<strong>Address selected.</strong><p>"+safe(label)+"</p><p>No UPRN needed unless this council's checker specifically requires one. Tap Save address, then Check collection dates.</p>";
+ toast("Address selected — UPRN is optional.");
 }
 async function resolveUprnForSelectedAddress(label){
  const out=$("lookupResults");

@@ -329,7 +329,7 @@ function colorForBin(name){const n=name.toLowerCase();if(n.includes("brown")||n.
 function parseBinDate(value){
   if(value===null||value===undefined||value==="")return null;
   const raw=String(value).trim();
-  const d=/^\\d{4}-\\d{2}-\\d{2}$/.test(raw)?new Date(raw+"T12:00:00"):new Date(raw);
+  const d=/^\d{4}-\d{2}-\d{2}$/.test(raw)?new Date(raw+"T12:00:00"):new Date(raw);
   return Number.isNaN(d.getTime())?null:d;
 }
 function formatDate(value){const d=parseBinDate(value);return d?d.toLocaleDateString(undefined,{weekday:"short",day:"numeric",month:"short",year:"numeric"}):String(value??"Date to be confirmed")}
@@ -377,7 +377,7 @@ function render(){
     const nextDate=dates[0];
     $("nextDate").textContent=nextDate.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});
     $("binList").className="bins";
-    const binCards=upcomingBins.map(b=>`<div class="bin ${binColorClass(b.color,b.name)}" style="background-color:var(--bin-${binColorClass(b.color,b.name)},#2676bd)"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name||"Collection")}</strong><br><small>${safe(formatDate(b.date))}</small></div></div>`).join("");
+    const binCards=upcomingBins.map(b=>`<div class="bin ${binColorClass(b.color,b.name)}"><div class="emoji">${safe(b.emoji||"♻")}</div><div><strong>${safe(b.name||"Collection")}</strong><br><small>${safe(formatDate(b.date))}</small></div></div>`).join("");
     $("binList").innerHTML=binCards + (s.kind==="council-calendar"?'<div class="notice" style="grid-column:1/-1"><strong>Verified council dates</strong><br>Dates transcribed from the council calendar supplied for this household.</div>':"");
     if(!binCards){$("binList").className="bins";$("binList").innerHTML='<div class="notice" style="grid-column:1/-1"><strong>Schedule saved, but no upcoming bin cards could be displayed.</strong><br>Open My address and check the saved collection dates.</div>';}
   }else{

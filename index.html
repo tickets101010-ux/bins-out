@@ -75,7 +75,7 @@
  </div>
 </section>
 </main>
-<div class="footer">Bins Out · V10 · Household-specific collection lookup<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
+<div class="footer">Bins Out · V11 · Household-specific collection lookup<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <div id="modalBack" class="modalback hidden" onclick="if(event.target===this)closeModal()"><div class="modal"><h2 id="modalTitle">Reminder preview</h2><p id="modalText"></p><button class="btn" onclick="closeModal()">Got it</button></div></div>
@@ -85,7 +85,7 @@ const demoSchedule={kind:"demo",dateOffset:1,bins:[{name:"Recycling",color:"blue
 const defaultReminders={time:"19:00",enabled:true,details:true};
 const UKBIN_API="https://ukbinday.co.uk/api/v2";
 let CONNECTOR_URL=localStorage.getItem("binsOutConnectorUrl")||"https://bins-out-connector.tickets101010.workers.dev";
-let lookupAddresses=[],selectedWhenIsBinsPropertyId="",whenIsBinsRequiredInput="property";
+let lookupAddresses=[],selectedWhenIsBinsPropertyId="",whenIsBinsRequiredInput="property",selectedAddressLabel="",selectedUprnCandidates=[];
 let state={profiles:[],activeProfileId:null};
 let editingExistingProfile=false;
 function makeId(){return "hh-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,7)}
@@ -202,11 +202,15 @@ function loadActiveIntoForm(){
   const p=activeProfile();
   if(!p){
     $("house").value="";$("postcode").value="";$("area").value="";$("country").value="England";$("providerUrl").value="";
+    $("ladCode").value="";$("uprn").value="";
+    selectedWhenIsBinsPropertyId="";selectedAddressLabel="";selectedUprnCandidates=[];
     $("time").value=defaultReminders.time;$("enabled").checked=defaultReminders.enabled;$("details").checked=defaultReminders.details;
     return;
   }
   const a=p.address||{};
   $("house").value=a.house||"";$("postcode").value=a.postcode||"";$("area").value=a.area||"";const oldRegion=a.country||"England";$("country").value=["England","Scotland","Wales","Northern Ireland"].includes(oldRegion)?oldRegion:"England";$("providerUrl").value=a.providerUrl||"";
+  $("ladCode").value=a.ladCode||"";$("uprn").value=a.uprn||"";
+  selectedWhenIsBinsPropertyId=String(a.propertyId||"");selectedAddressLabel=String(a.addressLabel||"");selectedUprnCandidates=[];
   const r={...defaultReminders,...(p.reminders||{})};
   $("time").value=r.time||"19:00";$("enabled").checked=r.enabled!==false;$("details").checked=r.details!==false;
 }
@@ -294,7 +298,67 @@ async function lookupPostcode(){
  }
  finally{btn.disabled=false;btn.textContent="Find address by postcode"}
 }
-function selectAddress(i){const a=lookupAddresses[i];if(!a)return;selectedWhenIsBinsPropertyId=String(a.id||"");const label=String(a.label||a.address||"");const parts=label.split(",").map(x=>x.trim());$("house").value=parts[0]||label;/* Keep the council field as the council returned by postcode lookup; never replace it with the street name. */$("lookupResults").innerHTML=`<strong>Address selected</strong><p>${safe(label)}</p><p>Tap Save address, then Check collection dates for this exact property.</p>`;toast("Exact address selected.")}
+async function selectAddress(i){
+ const a=lookupAddresses[i];if(!a)return;
+ selectedWhenIsBinsPropertyId=String(a.id||"");
+ const label=String(a.label||a.address||"");selectedAddressLabel=label;selectedUprnCandidates=[];
+ const parts=label.split(",").map(x=>x.trim());$("house").value=parts[0]||label;
+ const candidateUprn=String(a.uprn||a.UPRN||a.property_uprn||"").trim();
+ $("uprn").value=/^\d{1,12}$/.test(candidateUprn)?candidateUprn:"";
+ if($("uprn").value){
+  $("lookupResults").innerHTML="<strong>Address selected and UPRN supplied.</strong><p>"+safe(label)+"</p><p>UPRN: "+safe($("uprn").value)+"</p><p>Tap Save address, then Check collection dates.</p>";
+  toast("Exact address and UPRN selected.");return;
+ }
+ await resolveUprnForSelectedAddress(label);
+}
+async function resolveUprnForSelectedAddress(label){
+ const out=$("lookupResults");
+ out.innerHTML="<strong>Address selected</strong><p>"+safe(label)+"</p><p>Checking the official address record for its UPRN…</p>";
+ try{
+  const url=CONNECTOR_URL+"/resolve-uprn?postcode="+encodeURIComponent($("postcode").value.trim().toUpperCase())+"&address="+encodeURIComponent(label);
+  const r=await fetch(url,{headers:{Accept:"application/json"}});
+  const v=await r.json().catch(()=>({detail:"The address service returned an unreadable response."}));
+  if(!r.ok){
+   out.innerHTML="<strong>Address selected.</strong><p>"+safe(v.detail||v.problem||"The UPRN could not be looked up.")+"</p><p>The UPRN field has been left blank rather than guessing. You can still save the address.</p>";
+   return;
+  }
+  if(v.status==="matched"&&/^\d{1,12}$/.test(String(v.uprn||""))){
+   $("uprn").value=String(v.uprn);
+   out.innerHTML="<strong>UPRN found for this property.</strong><p>"+safe(v.matched_address||label)+"</p><p>UPRN: <strong>"+safe(v.uprn)+"</strong></p>"+councilMatchNote(v.council_name)+"<p>Tap Save address, then Check collection dates.</p>";
+   toast("UPRN found for the selected property.");return;
+  }
+  selectedUprnCandidates=Array.isArray(v.candidates)?v.candidates:[];
+  if(selectedUprnCandidates.length){
+   out.innerHTML="<strong>Choose the matching official address</strong><p>"+safe(v.detail||"Several address records are possible. Choose the exact property before saving its UPRN.")+"</p><div style=\"display:grid;gap:8px;margin-top:10px\">"+selectedUprnCandidates.map((c,j)=>"<button class=\"btn secondary\" style=\"text-align:left\" onclick=\"selectUprnCandidate("+j+")\">"+safe(c.address||"Address option "+(j+1))+"<br><small>UPRN: "+safe(c.uprn||"not supplied")+"</small></button>").join("")+"</div>";
+   return;
+  }
+  out.innerHTML="<strong>Address selected, but no UPRN could be confidently matched.</strong><p>"+safe(v.detail||"Check the exact address and postcode. No UPRN has been guessed.")+"</p><p>Your selected council address remains available. You can still save it and try the collection lookup.</p>";
+ }catch(e){
+  out.innerHTML="<strong>Address selected, but UPRN lookup failed.</strong><p>"+safe(e.message||"The official address service could not be reached.")+"</p><p>The UPRN field has been left blank rather than guessing.</p>";
+ }
+}
+function selectUprnCandidate(i){
+ const a=selectedUprnCandidates[i];if(!a)return;
+ const uprn=String(a.uprn||"").trim();if(!/^\d{1,12}$/.test(uprn)){toast("This address option did not include a valid UPRN.");return;}
+ $("uprn").value=uprn;
+ // The authoritative address record did not match the council-picker label exactly,
+ // so use the UPRN rather than reusing a potentially unrelated opaque picker ID.
+ selectedWhenIsBinsPropertyId="";
+ selectedAddressLabel=String(a.address||selectedAddressLabel||"");
+ const first=selectedAddressLabel.split(",").map(x=>x.trim())[0];if(first)$("house").value=first;
+ $("lookupResults").innerHTML="<strong>Official property selected.</strong><p>"+safe(selectedAddressLabel)+"</p><p>UPRN: <strong>"+safe(uprn)+"</strong></p>"+councilMatchNote(a.council_name)+"<p>Tap Save address, then Check collection dates.</p>";
+ toast("Exact property reference selected.");
+}
+function councilMatchNote(osCouncil){
+ const providerCouncil=String(osCouncil||"").trim(),collectionCouncil=String($("area").value||"").trim();
+ if(!providerCouncil)return "";
+ const norm=function(s){return String(s||"").toLowerCase().replace(/\bcity\b/g,"").replace(/\bcouncil\b/g,"").replace(/[^a-z0-9]+/g," ").trim().replace(/\s+/g," ")};
+ if(collectionCouncil&&norm(providerCouncil)!==norm(collectionCouncil)){
+  return "<p><strong>Check council:</strong> The address record says "+safe(providerCouncil)+", while the collection lookup says "+safe(collectionCouncil)+". Confirm the correct council before relying on collection dates.</p>";
+ }
+ if(!collectionCouncil)$("area").value=providerCouncil;
+ return "";
+}
 function saveConnectorUrl(){const raw=$("connectorUrl").value.trim().replace(/\/$/,"");if(!raw){toast("Paste the deployed connector URL first.");return}try{const u=new URL(raw);if(u.protocol!=="https:")throw 0;CONNECTOR_URL=raw;localStorage.setItem("binsOutConnectorUrl",raw);toast("Connector URL saved on this device.")}catch(e){toast("Use the full https:// Worker URL.")}}
 
 function useLookupAddress(){const sel=$("addressChoice");const a=lookupAddresses[Number(sel?.value)];if(!a){toast("Choose an address first.");return}const label=a.address||a.label||a.name||"";const m=label.match(/^(.+?),\s*(.+)$/);if(m){$("house").value=m[1].trim();if(!( $("area") ).value)$("area").value=m[2].trim()}else $("house").value=label;toast("Address added to the form. Save it to keep this household.")}
@@ -386,14 +450,15 @@ function saveAddress(){
   let house=$("house").value.trim(),postcode=$("postcode").value.trim();
   if(!house||!postcode){toast("Add both a house number/name and postcode first.");return}
   let p=activeProfile();
-  const nextAddress={house,postcode,area:$("area").value.trim(),country:$("country").value,providerUrl:$("providerUrl").value.trim()};
+  const nextAddress={house,postcode,area:$("area").value.trim(),country:$("country").value,providerUrl:$("providerUrl").value.trim(),uprn:$("uprn").value.trim(),ladCode:$("ladCode").value.trim(),propertyId:selectedWhenIsBinsPropertyId,addressLabel:selectedAddressLabel};
   const differsFromActive=!!(p&&p.address)&&(house.toLowerCase()!==String(p.address.house||"").toLowerCase()||postcode.replace(/\s+/g,"").toUpperCase()!==String(p.address.postcode||"").replace(/\s+/g,"").toUpperCase()||nextAddress.country!==String(p.address.country||"England"));
   // Avoid silently replacing a saved household when the form contains a different property.
   if(!p||(!editingExistingProfile&&differsFromActive)){p={id:makeId(),name:"New household",address:null,schedule:null,reminders:{...defaultReminders}};state.profiles.push(p);state.activeProfileId=p.id;}
   const previous=p.address||{};
   const addressChanged=house.toLowerCase()!==String(previous.house||"").toLowerCase()
     ||postcode.replace(/\s+/g,"").toUpperCase()!==String(previous.postcode||"").replace(/\s+/g,"").toUpperCase()
-    ||nextAddress.country!==String(previous.country||"England");
+    ||nextAddress.country!==String(previous.country||"England")
+    ||String(nextAddress.uprn||"")!==String(previous.uprn||"");
   p.address=nextAddress;
   p.name=[house,postcode].filter(Boolean).join(" · ")||"My household";
   if(addressChanged)p.schedule=null;
@@ -483,6 +548,8 @@ function openProvider(){let u=$("providerUrl").value.trim();if(!u){openOfficialG
 let toastTimer;function toast(msg){$("toast").textContent=msg;$("toast").classList.remove("hidden");clearTimeout(toastTimer);toastTimer=setTimeout(()=>$("toast").classList.add("hidden"),3000)}
 if("serviceWorker" in navigator && location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});
 if($("connectorUrl"))$("connectorUrl").value=CONNECTOR_URL;
+$("house").addEventListener("input",()=>{if(selectedAddressLabel){selectedWhenIsBinsPropertyId="";selectedAddressLabel="";$("uprn").value="";}});
+$("postcode").addEventListener("input",()=>{selectedWhenIsBinsPropertyId="";selectedAddressLabel="";$("uprn").value="";});
 load();
 </script>
 </body>

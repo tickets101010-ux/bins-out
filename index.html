@@ -485,8 +485,10 @@ function exportCalendar(){
  const ymd=d=>d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate());
  const escapeIcs=v=>String(v||"").replace(/\\/g,"\\\\").replace(/\n/g,"\\n").replace(/,/g,"\\,").replace(/;/g,"\\;");
  const now=new Date(),stamp=now.getUTCFullYear()+pad(now.getUTCMonth()+1)+pad(now.getUTCDate())+"T"+pad(now.getUTCHours())+pad(now.getUTCMinutes())+pad(now.getUTCSeconds())+"Z";
+ const reminderTime=p.reminders?.time||"19:00";
+ const parts=reminderTime.split(":").map(Number),reminderHour=Number.isFinite(parts[0])?parts[0]:19,reminderMinute=Number.isFinite(parts[1])?parts[1]:0;
  const events=bins.map((b,i)=>{
-  const d=parseBinDate(b.date),start=new Date(d);start.setHours(7,0,0,0);
+  const d=parseBinDate(b.date),start=new Date(d);start.setHours(reminderHour+12,reminderMinute,0,0);
   const end=new Date(start);end.setMinutes(end.getMinutes()+15);
   const name=String(b.name||b.bin||"Bin collection");
   const address=p.address?[p.address.house,p.address.postcode].filter(Boolean).join(" "):"";

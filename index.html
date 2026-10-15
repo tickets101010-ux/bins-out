@@ -46,6 +46,7 @@
   <div class="row"><div class="field"><label for="house">House number / name</label><input id="house" placeholder="e.g. 24 or Rose Cottage" autocomplete="address-line1"></div><div class="field"><label for="postcode">Postcode / ZIP</label><input id="postcode" placeholder="e.g. SW1A 1AA" autocomplete="postal-code"></div></div>
   <div class="field"><label for="area">Council / city (optional)</label><input id="area" placeholder="e.g. Westminster, London"></div>
   <button class="btn secondary" onclick="lookupPostcode()" id="lookupBtn">Find address by postcode</button>
+  <button class="btn secondary" onclick="resolveManualAddress()" id="manualLookupBtn" style="margin-top:8px">Can't find my address? Search official register</button>
   <div id="lookupResults" class="notice hidden" aria-live="polite"></div>
   <button class="btn" onclick="saveAddress()">Save address</button>
   <div class="notice"><strong>Privacy first:</strong> The prototype stores this address only in your browser's local storage. Don't enter sensitive information on a shared device.</div>
@@ -312,6 +313,14 @@ async function selectAddress(i){
  $("lookupResults").innerHTML="<strong>Address selected.</strong><p>"+safe(label)+"</p><p>No UPRN needed unless this council's checker specifically requires one. Tap Save address, then Check collection dates.</p>";
  toast("Address selected — UPRN is optional.");
 }
+async function resolveManualAddress(){
+ const house=$("house").value.trim(),postcode=$("postcode").value.trim().toUpperCase();
+ if(!house||!postcode){toast("Enter the house number/name and full postcode first.");return}
+ selectedWhenIsBinsPropertyId="";
+ selectedAddressLabel="";
+ $("lookupResults").classList.remove("hidden");
+ await resolveUprnForSelectedAddress(house+", "+postcode);
+}
 async function resolveUprnForSelectedAddress(label){
  const out=$("lookupResults");
  out.innerHTML="<strong>Address selected</strong><p>"+safe(label)+"</p><p>Checking the official address record for its UPRN…</p>";
@@ -323,17 +332,22 @@ async function resolveUprnForSelectedAddress(label){
    out.innerHTML="<strong>Address selected.</strong><p>"+safe(v.detail||v.problem||"The UPRN could not be looked up.")+"</p><p>The UPRN field has been left blank rather than guessing. You can still save the address.</p>";
    return;
   }
-  if(v.status==="matched"&&/^\d{1,12}$/.test(String(v.uprn||""))){
+  if(v.status==="matched"&&/^\\d{1,12}$/.test(String(v.uprn||""))){
    $("uprn").value=String(v.uprn);
-   out.innerHTML="<strong>UPRN found for this property.</strong><p>"+safe(v.matched_address||label)+"</p><p>UPRN: <strong>"+safe(v.uprn)+"</strong></p>"+councilMatchNote(v.council_name)+"<p>Tap Save address, then Check collection dates.</p>";
-   toast("UPRN found for the selected property.");return;
+   selectedWhenIsBinsPropertyId="";
+   selectedAddressLabel=String(v.matched_address||label);
+   const matchedFirst=selectedAddressLabel.split(",").map(x=>x.trim())[0];
+   if(matchedFirst)$("house").value=matchedFirst;
+   out.innerHTML="<strong>Exact property found in the official address register.</strong><p>"+safe(v.matched_address||label)+"</p><p>UPRN: <strong>"+safe(v.uprn)+"</strong></p>"+councilMatchNote(v.council_name)+"<p>Tap Save address, then Check collection dates.</p>";
+   toast("Official address matched.");return;
   }
+  
   selectedUprnCandidates=Array.isArray(v.candidates)?v.candidates:[];
   if(selectedUprnCandidates.length){
    out.innerHTML="<strong>Choose the matching official address</strong><p>"+safe(v.detail||"Several address records are possible. Choose the exact property before saving its UPRN.")+"</p><div style=\"display:grid;gap:8px;margin-top:10px\">"+selectedUprnCandidates.map((c,j)=>"<button class=\"btn secondary\" style=\"text-align:left\" onclick=\"selectUprnCandidate("+j+")\">"+safe(c.address||"Address option "+(j+1))+"<br><small>UPRN: "+safe(c.uprn||"not supplied")+"</small></button>").join("")+"</div>";
    return;
   }
-  out.innerHTML="<strong>Address selected, but no UPRN could be confidently matched.</strong><p>"+safe(v.detail||"Check the exact address and postcode. No UPRN has been guessed.")+"</p><p>Your selected council address remains available. You can still save it and try the collection lookup.</p>";
+  out.innerHTML="<strong>No confident official address match yet.</strong><p>"+safe(v.detail||"Check the exact address and postcode. No UPRN has been guessed.")+"</p><p>Your selected council address remains available. You can still save the manually entered address and try the council collection lookup. Only rely on dates if the returned property matches your own home.</p>";
  }catch(e){
   out.innerHTML="<strong>Address selected, but UPRN lookup failed.</strong><p>"+safe(e.message||"The official address service could not be reached.")+"</p><p>The UPRN field has been left blank rather than guessing.</p>";
  }

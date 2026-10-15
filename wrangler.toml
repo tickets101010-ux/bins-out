@@ -1,3 +1,10 @@
 name = "bins-out-connector"
 main = "worker.js"
 compatibility_date = "2026-10-12"
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+# In Cloudflare, bind a KV namespace named PUSH_STORE to this Worker.
+# Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_JWK as Worker secrets/variables.
+# Push delivery stays disabled until those account-level settings exist.

@@ -73,6 +73,8 @@
  <div class="switchrow"><div><strong>Evening-before reminder</strong><div class="small">Show reminder preferences in the app</div></div><input type="checkbox" id="enabled" checked></div>
  <div class="switchrow"><div><strong>Include collection details</strong><div class="small">List bin colours and waste types</div></div><input type="checkbox" id="details" checked></div>
  <button class="btn" onclick="saveReminders()">Save preferences</button>
+ <button class="btn secondary" id="pushToggleBtn" style="margin-top:12px" onclick="togglePushReminders()">Enable automatic phone reminders</button>
+ <div class="notice" id="pushStatus" aria-live="polite"><strong>Automatic reminders:</strong> Not enabled on this device. This requires the connector’s push service to be configured.</div>
  <button class="btn secondary" style="margin-top:12px" onclick="testReminder()">Preview reminder</button>
  <div class="notice"><strong>Real reminder option:</strong> After confirming your collection dates, use “Add reminders to phone calendar” on My bins. Import the calendar file into your phone's calendar app; each event includes an alert for 7 pm the evening before. App-only preferences do not send background notifications by themselves.</div>
  </div>
@@ -112,7 +114,7 @@ function ensureProfiles(){
   syncLegacy();
 }
 function syncLegacy(){const p=activeProfile();state.address=p?.address||null;state.schedule=p?.schedule||null;state.reminders={...defaultReminders,...(p?.reminders||{})}}
-function persist(){syncLegacy();localStorage.setItem("binsout-v1",JSON.stringify(state))}
+function persist(){syncLegacy();localStorage.setItem("binsout-v1",JSON.stringify(state));if(typeof syncPushSchedule==="function")state.profiles.filter(p=>p.pushEnabled&&p.pushId).forEach(p=>syncPushSchedule(p).catch(e=>showPushStatus(e.message||"Automatic reminders need attention.")))}
 function load(){
   try{
     const saved=JSON.parse(localStorage.getItem("binsout-v1")||"{}");
@@ -329,7 +331,7 @@ async function lookupGlasgowCalendar(uprn,house,postcode,out){
  if(!bins.length)throw Error("The council calendar opened, but no collection dates could be read safely. Your saved schedule is unchanged.");
  const p=activeProfile();if(!p)throw Error("Save this address first, then check dates.");
  bins.sort((a,b)=>a.date.localeCompare(b.date));
- p.schedule={kind:"council-calendar",confirmed:true,source:"Glasgow City Council official calendar",sourceUrl:"https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN="+encodeURIComponent(uprn),retrievedAt:new Date().toISOString(),uprn,bins};persist();render();
+ p.schedule={kind:"council-calendar",confirmed:true,source:"Glasgow City Council official calendar",sourceUrl:"https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN="+encodeURIComponent(uprn),retrievedAt:new Date().toISOString(),uprn,bins};persist();render();if(p.pushEnabled)syncPushSchedule(p).catch(e=>showPushStatus(e.message||"Could not update automatic reminders."));
  out.innerHTML="<strong>Glasgow council dates loaded.</strong><p>"+bins.length+" next collection dates read from the official calendar for UPRN "+safe(uprn)+". This is the next date for each bin type, not a full future calendar.</p><p><a href=\""+safe(p.schedule.sourceUrl)+"\" target=\"_blank\" rel=\"noopener\">Open official council calendar</a></p>";
  toast("Glasgow council dates loaded.");
 }
@@ -358,7 +360,7 @@ async function lookupCollections(){
   let rounds=0;while(["queued","running","partial"].includes(v.status)&&v.id&&rounds<24){if(v.status==="partial"&&v.result?.collections?.length)break;out.textContent=v.progress?.message||"The council is checking its calendar…";await new Promise(resolve=>setTimeout(resolve,5000));const sr=await fetch(`${CONNECTOR_URL}/status?id=${encodeURIComponent(v.id)}`,{headers:{Accept:"application/json"}});v=await sr.json();if(!sr.ok)throw Error(v.detail||v.problem||"Could not check lookup progress.");rounds++}
   if(v.status==="failed")throw Error(v.detail||v.problem||"The council could not confirm this property's collections.");const result=v.result||{},collections=Array.isArray(result.collections)?result.collections:[],bins=collections.flatMap(c=>(Array.isArray(c.dates)?c.dates:[]).map(date=>({name:c.name||c.waste_type||"Collection",date,color:c.bin_colour||colorForBin(c.name||c.waste_type||""),waste:c.waste_type||c.name||"Council collection",emoji:"♻"}))).filter(b=>b.date);
   if(!bins.length){const link=result.council?.lookup_url||v.council?.lookup_url;out.innerHTML=`<strong>${["queued","running","partial"].includes(v.status)?"This lookup is still running.":"No confirmed collection dates were returned."}</strong><p>${safe(v.detail||result.notes||"The service could not confirm dated collections for this property.")}</p>${link?`<p><a href="${safe(link)}" target="_blank" rel="noopener">Open official council bin checker</a></p>`:""}`;return}
-  bins.sort((a,b)=>new Date(a.date)-new Date(b.date));const p=activeProfile();if(!p){toast("Save this address first, then check dates.");return}p.schedule={kind:"council-calendar",confirmed:true,source:result.source_url||result.council?.lookup_url||"WhenIsBins council lookup",addressMatch:result.address_match||"unknown",retrievedAt:result.retrieved_at||new Date().toISOString(),bins};persist();render();const link=result.source_url||result.council?.lookup_url;out.innerHTML=`<strong>Collection dates found for ${safe(result.matched_address||house+", "+postcode)}.</strong><p>${bins.length} dated collections loaded. Match: ${safe(result.address_match||"not specified")}; evidence: ${safe(result.evidence_granularity||"not specified")}.</p>${link?`<p><a href="${safe(link)}" target="_blank" rel="noopener">View council source</a></p>`:""}`;toast("Collection dates loaded.");
+  bins.sort((a,b)=>new Date(a.date)-new Date(b.date));const p=activeProfile();if(!p){toast("Save this address first, then check dates.");return}p.schedule={kind:"council-calendar",confirmed:true,source:result.source_url||result.council?.lookup_url||"WhenIsBins council lookup",addressMatch:result.address_match||"unknown",retrievedAt:result.retrieved_at||new Date().toISOString(),bins};persist();render();if(p.pushEnabled)syncPushSchedule(p).catch(e=>showPushStatus(e.message||"Could not update automatic reminders."));const link=result.source_url||result.council?.lookup_url;out.innerHTML=`<strong>Collection dates found for ${safe(result.matched_address||house+", "+postcode)}.</strong><p>${bins.length} dated collections loaded. Match: ${safe(result.address_match||"not specified")}; evidence: ${safe(result.evidence_granularity||"not specified")}.</p>${link?`<p><a href="${safe(link)}" target="_blank" rel="noopener">View council source</a></p>`:""}`;toast("Collection dates loaded.");
  }catch(e){const isGlasgow=String($("area").value||"").toLowerCase().includes("glasgow");const officialLink=isGlasgow?`<p><a class="link" href="https://onlineservices.glasgow.gov.uk/forms/RefuseAndRecyclingWebApplication/AddressSearch.aspx" target="_blank" rel="noopener">Check this address on Glasgow City Council’s official bin checker</a></p>`:"";out.innerHTML=`<strong>Collection lookup couldn't finish.</strong><p>${safe(e.message||"The service could not confirm this address.")}</p><p>Your existing saved schedule has been left unchanged.</p>${officialLink}<p class="small">If your exact address is missing from the list, don’t choose a neighbour’s property. Only use collection dates when the result matches your own home.</p>`}finally{btn.disabled=false;btn.textContent="Check collection dates"}
 }
 function colorForBin(name){const n=String(name||"").toLowerCase();if(/brown|garden/.test(n))return"brown";if(/green bin|green waste|plastic/.test(n))return"green";if(/food|glass/.test(n))return"green";if(/grey|black|general waste|domestic|rubbish/.test(n))return"grey";if(/blue bin|paper|cardboard|cans|recycl/.test(n))return"blue";return"blue"}
@@ -420,6 +422,7 @@ function loadDemo(){
 }
 function render(){
   syncLegacy();
+  updatePushButton();
   const p=activeProfile(),a=p?.address,s=p?.schedule;
   refreshProfileSelect();
   $("dataStatus").textContent=s&&s.confirmed&&s.kind==="ukbin-api"?"LIVE SOURCE":s&&s.confirmed&&s.kind==="council-calendar"?"COUNCIL DATES":s?"SAMPLE ONLY":"NO DATA";
@@ -477,7 +480,48 @@ function render(){
   updatePreview();
 }
 function safe(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
-function saveReminders(){const p=activeProfile();if(!p){toast("Add a household before saving its reminder preferences.");showTab("setup");return}p.reminders={time:$("time").value,enabled:$("enabled").checked,details:$("details").checked};persist();render();toast("Reminder preferences saved for this household.");}
+function saveReminders(){const p=activeProfile();if(!p){toast("Add a household before saving its reminder preferences.");showTab("setup");return}p.reminders={time:$("time").value,enabled:$("enabled").checked,details:$("details").checked};persist();render();if(p.pushEnabled)syncPushSchedule(p).catch(e=>showPushStatus(e.message||"Could not update automatic reminders."));toast("Reminder preferences saved for this household.");}
+function showPushStatus(message){const el=$("pushStatus");if(el)el.textContent=message}
+function decodeVapidKey(value){const s=String(value||"").replace(/-/g,"+").replace(/_/g,"/");const padded=s+"=".repeat((4-s.length%4)%4);return Uint8Array.from(atob(padded),c=>c.charCodeAt(0))}
+async function syncPushSchedule(p){
+ if(!p||!p.pushEnabled||!p.pushId)return;
+ const schedule=p.schedule&&p.schedule.confirmed===true?{confirmed:true,bins:p.schedule.bins||[]}:null;
+ const r=await fetch(CONNECTOR_URL+"/push/schedule",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify({id:p.pushId,schedule,reminders:p.reminders||defaultReminders})});
+ const data=await r.json().catch(()=>({detail:"The connector returned an unreadable response."}));
+ if(!r.ok)throw Error(data.detail||data.problem||"Automatic reminders could not be updated.");
+ showPushStatus("Automatic phone reminders are enabled for this household.");
+}
+async function togglePushReminders(){
+ const p=activeProfile();if(!p){toast("Add a household and save its address first.");showTab("setup");return}
+ const btn=$("pushToggleBtn");if(btn)btn.disabled=true;
+ try{
+  if(p.pushEnabled&&p.pushId){
+   await fetch(CONNECTOR_URL+"/push/unregister",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:p.pushId})});
+   const reg=await navigator.serviceWorker.getRegistration("./");
+   const sub=reg&&await reg.pushManager.getSubscription();if(sub)await sub.unsubscribe();
+   p.pushEnabled=false;delete p.pushId;persist();showPushStatus("Automatic reminders are switched off for this household.");toast("Automatic reminders switched off.");return;
+  }
+  if(!("serviceWorker" in navigator)||!("PushManager" in window)||!("Notification" in window))throw Error("This browser does not support background phone notifications. Keep using the calendar reminder option.");
+  if(!window.isSecureContext)throw Error("Open Bins Out over HTTPS to enable phone notifications.");
+  if(!p.schedule||p.schedule.confirmed!==true||!Array.isArray(p.schedule.bins)||!p.schedule.bins.length)throw Error("Confirm this household’s collection dates before enabling automatic reminders.");
+  const keyResponse=await fetch(CONNECTOR_URL+"/push/public-key",{headers:{Accept:"application/json"}});
+  const keyData=await keyResponse.json().catch(()=>({detail:"The connector returned an unreadable response."}));
+  if(!keyResponse.ok)throw Error(keyData.detail||keyData.problem||"The push service is not configured yet.");
+  const permission=Notification.permission==="granted"?"granted":await Notification.requestPermission();
+  if(permission!=="granted")throw Error("Notification permission was not granted. Allow notifications for Bins Out in your browser settings.");
+  const reg=await navigator.serviceWorker.ready;
+  let subscription=await reg.pushManager.getSubscription();
+  if(!subscription)subscription=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:decodeVapidKey(keyData.publicKey)});
+  p.pushId=p.pushId||("push-"+crypto.randomUUID());
+  p.pushEnabled=true;
+  const response=await fetch(CONNECTOR_URL+"/push/register",{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify({id:p.pushId,subscription:subscription.toJSON(),schedule:{confirmed:true,bins:p.schedule.bins},reminders:p.reminders||defaultReminders})});
+  const result=await response.json().catch(()=>({detail:"The connector returned an unreadable response."}));
+  if(!response.ok){p.pushEnabled=false;throw Error(result.detail||result.problem||"The connector could not register this device.");}
+  persist();showPushStatus("Automatic phone reminders are enabled for this household.");toast("Automatic phone reminders enabled.");
+ }catch(e){showPushStatus(e.message||"Could not enable automatic reminders.");toast(e.message||"Could not enable automatic reminders.");}
+ finally{if(btn)btn.disabled=false;updatePushButton()}
+}
+function updatePushButton(){const p=activeProfile(),btn=$("pushToggleBtn");if(btn)btn.textContent=p?.pushEnabled?"Turn off automatic reminders":"Enable automatic phone reminders";}
 function exportCalendar(){
   const p=activeProfile(),s=p?.schedule;
   if(!s||s.confirmed!==true||!Array.isArray(s.bins)){toast("Check and confirm this household's collection dates first.");return}

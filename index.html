@@ -332,7 +332,7 @@ async function resolveUprnForSelectedAddress(label){
    out.innerHTML="<strong>Address selected.</strong><p>"+safe(v.detail||v.problem||"The UPRN could not be looked up.")+"</p><p>The UPRN field has been left blank rather than guessing. You can still save the address.</p>";
    return;
   }
-  if(v.status==="matched"&&/^\\d{1,12}$/.test(String(v.uprn||""))){
+  if(v.status==="matched"&&/^\d{1,12}$/.test(String(v.uprn||""))){
    $("uprn").value=String(v.uprn);
    selectedWhenIsBinsPropertyId="";
    selectedAddressLabel=String(v.matched_address||label);

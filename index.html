@@ -468,37 +468,44 @@ function render(){
   $("reminderLabel").textContent=activeReminder.time||"19:00";
   const exportBtn=$("calendarExportBtn");
   const futureConfirmed=!!(s&&s.confirmed===true&&Array.isArray(s.bins)&&s.bins.some(b=>{const d=parseBinDate(b?.date);const t=new Date();t.setHours(0,0,0,0);return d&&d>=t}));
-  if(exportBtn)exportBtn.disabled=!futureConfirmed;
+  const remindersOn=activeReminder.enabled!==false;
+  if(exportBtn)exportBtn.disabled=!(futureConfirmed&&remindersOn);
   const exportHelp=$("calendarExportHelp");
-  if(exportHelp)exportHelp.textContent=futureConfirmed?"Download calendar events with a 7 pm alert the evening before each confirmed collection.":"Confirm collection dates first. Sample graphics are not exported as real collection dates.";
+  if(exportHelp)exportHelp.textContent=!futureConfirmed?"Confirm collection dates first. Sample graphics are not exported as real collection dates.":!remindersOn?"Turn on Evening-before reminder in Reminders, then save preferences.":`Add phone-calendar events with a ${activeReminder.time||"19:00"} alert the evening before each confirmed collection.`;
   updatePreview();
 }
 function safe(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function saveReminders(){const p=activeProfile();if(!p){toast("Add a household before saving its reminder preferences.");showTab("setup");return}p.reminders={time:$("time").value,enabled:$("enabled").checked,details:$("details").checked};persist();render();toast("Reminder preferences saved for this household.");}
 function exportCalendar(){
- const p=activeProfile(),s=p?.schedule;
- if(!s||s.confirmed!==true||!Array.isArray(s.bins)){toast("Check and confirm this household's collection dates first.");return}
- const today=new Date();today.setHours(0,0,0,0);
- const bins=s.bins.filter(b=>{const d=parseBinDate(b?.date);return d&&d>=today});
- if(!bins.length){toast("No future confirmed collection dates to export.");return}
- const pad=n=>String(n).padStart(2,"0");
- const ymd=d=>d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate());
- const escapeIcs=v=>String(v||"").replace(/\\/g,"\\\\").replace(/\n/g,"\\n").replace(/,/g,"\\,").replace(/;/g,"\\;");
- const now=new Date(),stamp=now.getUTCFullYear()+pad(now.getUTCMonth()+1)+pad(now.getUTCDate())+"T"+pad(now.getUTCHours())+pad(now.getUTCMinutes())+pad(now.getUTCSeconds())+"Z";
- const reminderTime=p.reminders?.time||"19:00";
- const parts=reminderTime.split(":").map(Number),reminderHour=Number.isFinite(parts[0])?parts[0]:19,reminderMinute=Number.isFinite(parts[1])?parts[1]:0;
- const events=bins.map((b,i)=>{
-  const d=parseBinDate(b.date),start=new Date(d);start.setHours(reminderHour+12,reminderMinute,0,0);
-  const end=new Date(start);end.setMinutes(end.getMinutes()+15);
-  const name=String(b.name||b.bin||"Bin collection");
-  const address=p.address?[p.address.house,p.address.postcode].filter(Boolean).join(" "):"";
-  const uid="binsout-"+p.id+"-"+ymd(d)+"-"+i+"@binsout";
-  return ["BEGIN:VEVENT","UID:"+uid,"DTSTAMP:"+stamp,"DTSTART:"+ymd(start)+"T"+pad(start.getHours())+pad(start.getMinutes())+"00","DTEND:"+ymd(end)+"T"+pad(end.getHours())+pad(end.getMinutes())+"00","SUMMARY:"+escapeIcs("Bin collection: "+name),"DESCRIPTION:"+escapeIcs("Bins Out reminder for "+address+". Source: "+(s.source||"collection lookup")),"BEGIN:VALARM","ACTION:DISPLAY","DESCRIPTION:"+escapeIcs("Put out "+name+" tonight"),"TRIGGER:-PT12H","END:VALARM","END:VEVENT"].join("\r\n");
- });
- const ics=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Bins Out//UK Bin Reminders//EN","CALSCALE:GREGORIAN","METHOD:PUBLISH",...events,"END:VCALENDAR"].join("\r\n")+"\r\n";
- const blob=new Blob([ics],{type:"text/calendar;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");
- a.href=url;a.download="Bins-Out-"+(p.address?.postcode||"collection-reminders").replace(/[^A-Za-z0-9-]/g,"")+".ics";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
- toast("Calendar file created. Import it into your phone calendar to receive the evening-before alerts.");
+  const p=activeProfile(),s=p?.schedule;
+  if(!s||s.confirmed!==true||!Array.isArray(s.bins)){toast("Check and confirm this household's collection dates first.");return}
+  if(p.reminders?.enabled===false){toast("Turn on evening-before reminders and save preferences first.");showTab("reminders");return}
+  const today=new Date();today.setHours(0,0,0,0);
+  const bins=s.bins.filter(b=>{const d=parseBinDate(b?.date);return d&&d>=today});
+  if(!bins.length){toast("No future confirmed collection dates to export.");return}
+  const pad=n=>String(n).padStart(2,"0");
+  const ymd=d=>d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate());
+  const escapeIcs=v=>String(v||"").replace(/\\/g,"\\\\").replace(/\n/g,"\\n").replace(/,/g,"\\,").replace(/;/g,"\\;");
+  const now=new Date(),stamp=now.getUTCFullYear()+pad(now.getUTCMonth()+1)+pad(now.getUTCDate())+"T"+pad(now.getUTCHours())+pad(now.getUTCMinutes())+pad(now.getUTCSeconds())+"Z";
+  const reminderTime=p.reminders?.time||"19:00";
+  const parts=reminderTime.split(":").map(Number),reminderHour=Number.isFinite(parts[0])?parts[0]:19,reminderMinute=Number.isFinite(parts[1])?parts[1]:0;
+  // The event begins at 08:00 on collection day. Calculate the alarm offset
+  // so it fires at the user's chosen local time on the previous evening.
+  const triggerMinutes=(24-reminderHour)*60+(8*60-reminderMinute);
+  const triggerHours=Math.floor(triggerMinutes/60),triggerRemainder=triggerMinutes%60;
+  const trigger="-PT"+(triggerHours?triggerHours+"H":"")+(triggerRemainder?triggerRemainder+"M":"");
+  const events=bins.map((b,i)=>{
+   const d=parseBinDate(b.date),start=new Date(d);start.setHours(8,0,0,0);
+   const end=new Date(start);end.setMinutes(end.getMinutes()+15);
+   const name=String(b.name||b.bin||"Bin collection");
+   const address=p.address?[p.address.house,p.address.postcode].filter(Boolean).join(" "):"";
+   const uid="binsout-"+p.id+"-"+ymd(d)+"-"+i+"@binsout";
+   return ["BEGIN:VEVENT","UID:"+uid,"DTSTAMP:"+stamp,"DTSTART:"+ymd(start)+"T"+pad(start.getHours())+pad(start.getMinutes())+"00","DTEND:"+ymd(end)+"T"+pad(end.getHours())+pad(end.getMinutes())+"00","SUMMARY:"+escapeIcs("Bin collection: "+name),"DESCRIPTION:"+escapeIcs("Bins Out collection reminder for "+address+". Source: "+(s.source||"collection lookup")),"BEGIN:VALARM","ACTION:DISPLAY","DESCRIPTION:"+escapeIcs("Put out "+name+" tonight"),"TRIGGER:"+trigger,"END:VALARM","END:VEVENT"].join("\r\n");
+  });
+  const ics=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Bins Out//UK Bin Reminders//EN","CALSCALE:GREGORIAN","METHOD:PUBLISH",...events,"END:VCALENDAR"].join("\r\n")+"\r\n";
+  const blob=new Blob([ics],{type:"text/calendar;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download="Bins-Out-"+(p.address?.postcode||"collection-reminders").replace(/[^A-Za-z0-9-]/g,"")+".ics";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  toast("Calendar file created. Open it and add the events to Samsung Calendar or Google Calendar to enable the alerts.");
 }
 function updatePreview(){const p=activeProfile();const r={...defaultReminders,...(p?.reminders||{})};const time=r.time||"19:00";let [h,m]=time.split(":").map(Number);let fmt=new Date(2000,0,1,h,m).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});const bins=p?.schedule?.bins||[];const suffix=r.details&&bins.length?" Collection bins in this profile: "+bins.map(b=>b.name).join(", ")+".":"";$("preview").innerHTML=`🗑️ <strong>Bins Out (${safe(fmt)}):</strong> ${r.enabled?"Reminder preference is ON.":"Reminder preference is OFF."}${safe(suffix)} <span style="display:block;margin-top:6px">Preview only — no notification has been scheduled or sent.</span>`;}
 function testReminder(){updatePreview();$("modalTitle").textContent="Your reminder preview";$("modalText").textContent=$("preview").innerText; $("modalBack").classList.remove("hidden");}

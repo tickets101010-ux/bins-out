@@ -114,7 +114,7 @@ function ensureProfiles(){
   syncLegacy();
 }
 function syncLegacy(){const p=activeProfile();state.address=p?.address||null;state.schedule=p?.schedule||null;state.reminders={...defaultReminders,...(p?.reminders||{})}}
-function persist(){syncLegacy();localStorage.setItem("binsout-v1",JSON.stringify(state))}
+function persist(){syncLegacy();localStorage.setItem("binsout-v1",JSON.stringify(state));if(typeof syncPushSchedule==="function")state.profiles.filter(p=>p.pushEnabled&&p.pushId).forEach(p=>syncPushSchedule(p).catch(e=>showPushStatus(e.message||"Automatic reminders need attention.")))}
 function load(){
   try{
     const saved=JSON.parse(localStorage.getItem("binsout-v1")||"{}");

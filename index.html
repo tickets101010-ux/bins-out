@@ -373,6 +373,7 @@ function binColorClass(value,name){
   const n=String(name||"").toLowerCase();
   // Prefer the collection's meaning over stale or generic stored colours.
   if(/brown|garden/.test(n))return "brown";
+  if(/green bin/.test(n))return "green";
   if(/food/.test(n))return "green";
   if(/green waste|plastic/.test(n))return "green";
   if(/domestic|general waste|rubbish|black|grey/.test(n))return "grey";
@@ -385,6 +386,7 @@ function binColorClass(value,name){
 function binEmoji(value,name){
   const n=String(name||"").toLowerCase();
   if(/brown|garden/.test(n))return "🟫";
+  if(/green bin/.test(n))return "♻️";
   if(/food/.test(n))return "🍃";
   if(/green waste|plastic/.test(n))return "🟩";
   if(/domestic|general waste|rubbish|black|grey/.test(n))return "🗑️";
@@ -471,7 +473,7 @@ function render(){
   const remindersOn=activeReminder.enabled!==false;
   if(exportBtn)exportBtn.disabled=!(futureConfirmed&&remindersOn);
   const exportHelp=$("calendarExportHelp");
-  if(exportHelp)exportHelp.textContent=!futureConfirmed?"Confirm collection dates first. Sample graphics are not exported as real collection dates.":!remindersOn?"Turn on Evening-before reminder in Reminders, then save preferences.":`Add phone-calendar events with a ${activeReminder.time||"19:00"} alert the evening before each confirmed collection.`;
+  if(exportHelp)exportHelp.textContent=!futureConfirmed?"Confirm collection dates first. Sample graphics are not exported as real collection dates.":!remindersOn?"Turn on Evening-before reminder in Reminders, then save preferences.":`Export confirmed collection dates with a ${activeReminder.time||"19:00"} alert the evening before. On Samsung, if tapping the downloaded .ics file only opens the calendar without adding events, open Samsung Calendar → Menu → Settings → Manage calendars → Import calendar, then choose the downloaded Bins-Out .ics file (menu names vary by phone).`;
   updatePreview();
 }
 function safe(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}

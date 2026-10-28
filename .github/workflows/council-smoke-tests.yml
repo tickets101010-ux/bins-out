@@ -34,10 +34,8 @@ jobs:
               const discovery = await response.json();
               const council = String(discovery.council?.name || discovery.council?.id || discovery.council_name || discovery.lad || '').toLowerCase();
               const candidates = Array.isArray(discovery.candidates) ? discovery.candidates : [];
-              const selected = candidates.find(candidate => {
-                const label = String(candidate.label || candidate.address || '').trim().toUpperCase();
-                return label.startsWith(item.house + ' ') || label.startsWith(item.house + ',');
-              });
+              const housePattern = new RegExp('(?:^|[\\\\s,/#])' + item.house + '[A-Z]?(?=[\\\\s,/#]|$)', 'i');
+              const selected = candidates.find(candidate => housePattern.test(String(candidate.label || candidate.address || '').trim()));
               console.log('DISCOVERY', JSON.stringify({
                 postcode: item.postcode,
                 http_status: response.status,

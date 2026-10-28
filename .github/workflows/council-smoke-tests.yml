@@ -48,6 +48,7 @@ jobs:
                 required_input: discovery.required_input || null,
                 candidate_count: candidates.length,
                 exact_house_candidate_found: !!selected,
+                candidate_prefixes_redacted: selected ? undefined : candidates.map(candidate => String(candidate.label || candidate.address || '').split(',')[0].replace(/[A-Za-z]/g, 'X')).slice(0, 20),
                 lookup_url_present: !!(discovery.council?.lookup_url || discovery.deeplink?.url)
               }));
               if (!response.ok || !council || !council.includes(item.expectedCouncil) || !selected?.id) {

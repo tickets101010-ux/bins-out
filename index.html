@@ -80,7 +80,7 @@
  </div>
 </section>
 </main>
-<div class="footer">Bins Out · V11 · Household-specific collection lookup<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
+<div class="footer">Bins Out · V12 · Glasgow and East Renfrewshire lookup<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <div id="modalBack" class="modalback hidden" onclick="if(event.target===this)closeModal()"><div class="modal"><h2 id="modalTitle">Reminder preview</h2><p id="modalText"></p><button class="btn" onclick="closeModal()">Got it</button></div></div>
@@ -585,7 +585,7 @@ let toastTimer;function toast(msg){$("toast").textContent=msg;$("toast").classLi
 if("serviceWorker" in navigator && location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});
 if($("connectorUrl"))$("connectorUrl").value=CONNECTOR_URL;
 $("house").addEventListener("input",()=>{if(selectedAddressLabel){selectedWhenIsBinsPropertyId="";selectedAddressLabel="";$("uprn").value="";}});
-$("postcode").addEventListener("input",()=>{selectedWhenIsBinsPropertyId="";selectedAddressLabel="";$("uprn").value="";});
+$("postcode").addEventListener("input",()=>{selectedWhenIsBinsPropertyId="";selectedAddressLabel="";selectedUprnCandidates=[];lookupAddresses=[];whenIsBinsRequiredInput="property";$("uprn").value="";$("ladCode").value="";$("area").value="";});
 load();
 </script>
 </body>

@@ -1,0 +1,46 @@
+name: Glasgow and East Renfrewshire live lookup smoke test
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  postcode-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check live connector and postcode coverage
+        run: |
+          node --input-type=module <<'NODE'
+          const base = 'https://bins-out-connector.tickets101010.workers.dev';
+          const health = await fetch(base + '/health');
+          const healthBody = await health.text();
+          console.log('CONNECTOR_HEALTH', health.status, healthBody);
+          if (!health.ok) process.exit(1);
+          let failed = false;
+          for (const postcode of ['G46 7DS', 'G53 7LB']) {
+            try {
+              const response = await fetch(base + '/addresses?postcode=' + encodeURIComponent(postcode), {
+                headers: { Accept: 'application/json' }
+              });
+              const body = await response.json();
+              const summary = {
+                postcode,
+                status: response.status,
+                council: body.council?.name || body.council?.id || body.council_name || body.lad || null,
+                required_input: body.required_input || null,
+                candidates: Array.isArray(body.candidates) ? body.candidates.length : null,
+                detail: body.detail || body.problem || body.error || null,
+                lookup_url: body.council?.lookup_url || body.deeplink?.url || null
+              };
+              console.log('POSTCODE_RESULT', JSON.stringify(summary));
+              if (!response.ok || !summary.council) failed = true;
+            } catch (error) {
+              console.log('POSTCODE_RESULT', JSON.stringify({ postcode, error: String(error) }));
+              failed = true;
+            }
+          }
+          if (failed) process.exit(1);
+          NODE

@@ -348,7 +348,7 @@ async function lookupUprnCollections(postcode,house,uprn,lad,out){
  p.schedule={kind:"ukbin-api",confirmed:true,source:(v.deeplink&&v.deeplink.url)||"UK Bin Collection API (UPRN lookup)",retrievedAt:new Date().toISOString(),uprn:uprn,council:lad,bins:bins};persist();render();
  out.innerHTML="<strong>Collection dates found using UPRN "+safe(uprn)+".</strong><p>"+bins.length+" dated collections loaded.</p>"+((v.deeplink&&v.deeplink.url)?"<p><a href=\""+safe(v.deeplink.url)+"\" target=\"_blank\" rel=\"noopener\">View council source</a></p>":"");toast("UPRN collection dates loaded.");
 }
-function isEastRenfrewshireCouncil(value){return /east\\s+renfrewshire/i.test(String(value||""));}
+function isEastRenfrewshireCouncil(value){return /east\s+renfrewshire/i.test(String(value||""));}
 function shouldUseGlasgowCalendar(uprn,councilHint){return !!String(uprn||"").trim()&&/glasgow/i.test(String(councilHint||""));}
 function shouldUseUkBinDay(uprn,councilHint){return !!String(uprn||"").trim()&&!isEastRenfrewshireCouncil(councilHint)&&!/glasgow/i.test(String(councilHint||""));}
 async function lookupCollections(){

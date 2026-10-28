@@ -11,34 +11,94 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Check live connector and postcode coverage
+      - name: Check live connector, postcode discovery, and collection lookups
         run: |
           node --input-type=module <<'NODE'
           const base = 'https://bins-out-connector.tickets101010.workers.dev';
-          const health = await fetch(base + '/health');
+          const health = await fetch(base + '/health', { signal: AbortSignal.timeout(15000) });
           const healthBody = await health.text();
           console.log('CONNECTOR_HEALTH', health.status, healthBody);
           if (!health.ok) process.exit(1);
+
+          const cases = [
+            { postcode: 'G46 7DS', house: '58', expectedCouncil: 'east renfrewshire' },
+            { postcode: 'G53 7LB', house: '74', expectedCouncil: 'glasgow' }
+          ];
           let failed = false;
-          for (const postcode of ['G46 7DS', 'G53 7LB']) {
+          for (const item of cases) {
             try {
-              const response = await fetch(base + '/addresses?postcode=' + encodeURIComponent(postcode), {
-                headers: { Accept: 'application/json' }
+              const response = await fetch(base + '/addresses?postcode=' + encodeURIComponent(item.postcode), {
+                headers: { Accept: 'application/json' },
+                signal: AbortSignal.timeout(20000)
               });
-              const body = await response.json();
-              const summary = {
-                postcode,
-                status: response.status,
-                council: body.council?.name || body.council?.id || body.council_name || body.lad || null,
-                required_input: body.required_input || null,
-                candidates: Array.isArray(body.candidates) ? body.candidates.length : null,
-                detail: body.detail || body.problem || body.error || null,
-                lookup_url: body.council?.lookup_url || body.deeplink?.url || null
-              };
-              console.log('POSTCODE_RESULT', JSON.stringify(summary));
-              if (!response.ok || !summary.council) failed = true;
+              const discovery = await response.json();
+              const council = String(discovery.council?.name || discovery.council?.id || discovery.council_name || discovery.lad || '').toLowerCase();
+              const candidates = Array.isArray(discovery.candidates) ? discovery.candidates : [];
+              const selected = candidates.find(candidate => {
+                const label = String(candidate.label || candidate.address || '').trim().toUpperCase();
+                return label.startsWith(item.house + ' ') || label.startsWith(item.house + ',');
+              });
+              console.log('DISCOVERY', JSON.stringify({
+                postcode: item.postcode,
+                http_status: response.status,
+                council_found: !!council,
+                council_matches_expected: council.includes(item.expectedCouncil),
+                required_input: discovery.required_input || null,
+                candidate_count: candidates.length,
+                exact_house_candidate_found: !!selected,
+                lookup_url_present: !!(discovery.council?.lookup_url || discovery.deeplink?.url)
+              }));
+              if (!response.ok || !council || !council.includes(item.expectedCouncil) || !selected?.id) {
+                failed = true;
+                continue;
+              }
+
+              let lookupResponse = await fetch(base + '/lookups', {
+                method: 'POST',
+                headers: {
+                  Accept: 'application/json',
+                  'Content-Type': 'application/json',
+                  'Idempotency-Key': crypto.randomUUID()
+                },
+                body: JSON.stringify({ postcode: item.postcode, property_id: selected.id }),
+                signal: AbortSignal.timeout(20000)
+              });
+              let lookup = await lookupResponse.json();
+              if (!lookupResponse.ok) {
+                console.log('LOOKUP', JSON.stringify({ postcode: item.postcode, http_status: lookupResponse.status, problem: lookup.problem || null, detail: lookup.detail || null }));
+                failed = true;
+                continue;
+              }
+
+              let rounds = 0;
+              while (['queued', 'running', 'partial'].includes(lookup.status) && lookup.id && rounds < 24) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                const statusResponse = await fetch(base + '/status?id=' + encodeURIComponent(lookup.id), {
+                  headers: { Accept: 'application/json' },
+                  signal: AbortSignal.timeout(15000)
+                });
+                lookup = await statusResponse.json();
+                if (!statusResponse.ok) break;
+                rounds++;
+                if (lookup.status === 'partial' && lookup.result?.provisional !== true && lookup.result?.address_match !== 'postcode_representative' && lookup.result?.collections?.length) break;
+              }
+              const result = lookup.result || {};
+              const collections = Array.isArray(result.collections) ? result.collections : [];
+              const dateCount = collections.reduce((sum, collection) => sum + (Array.isArray(collection.dates) ? collection.dates.length : 0), 0);
+              const exact = result.address_match === 'exact' && result.provisional !== true;
+              console.log('COLLECTION_LOOKUP', JSON.stringify({
+                postcode: item.postcode,
+                status: lookup.status || null,
+                address_match: result.address_match || null,
+                provisional: result.provisional === true,
+                collection_types: collections.length,
+                dated_collections: dateCount,
+                source_url_present: !!(result.source_url || result.council?.lookup_url),
+                problem: lookup.problem || null
+              }));
+              if (!['done', 'partial'].includes(lookup.status) || !exact || dateCount < 1) failed = true;
             } catch (error) {
-              console.log('POSTCODE_RESULT', JSON.stringify({ postcode, error: String(error) }));
+              console.log('POSTCODE_CASE_ERROR', JSON.stringify({ postcode: item.postcode, error: String(error) }));
               failed = true;
             }
           }

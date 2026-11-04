@@ -90,7 +90,7 @@ const demoSchedule={kind:"demo",dateOffset:1,bins:[{name:"Recycling",color:"blue
 const defaultReminders={time:"19:00",enabled:true,details:true};
 const UKBIN_API="https://ukbinday.co.uk/api/v2";
 let CONNECTOR_URL=localStorage.getItem("binsOutConnectorUrl")||"https://bins-out-connector.tickets101010.workers.dev";
-let lookupAddresses=[],selectedWhenIsBinsPropertyId="",whenIsBinsRequiredInput="property",selectedAddressLabel="",selectedUprnCandidates=[];
+let lookupAddresses=[],selectedWhenIsBinsPropertyId="",whenIsBinsRequiredInput="property",selectedAddressLabel="",selectedUprnCandidates=[],fallbackPreview=null;
 let state={profiles:[],activeProfileId:null};
 let editingExistingProfile=false;
 function makeId(){return "hh-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,7)}
@@ -212,13 +212,76 @@ function deleteProfile(){
   if(!confirm(`Delete "${p?.name||"this household"}" and its saved settings from this device?`))return;
   state.profiles=state.profiles.filter(x=>x.id!==p.id);state.activeProfileId=state.profiles[0]?.id||null;syncLegacy();persist();loadActiveIntoForm();render();toast(state.profiles.length?"Household deleted.":"Last household deleted. Bins Out is now empty and ready for a new address.");
 }
+function candidateHouseNumber(label){const m=String(label||"").trim().match(/^(\\d+)/);return m?Number(m[1]):null}
+function nearestCandidate(candidates,requestedHouse){
+ const req=String(requestedHouse||"").trim().match(/^(\\d+)/)?.[1];
+ if(!candidates.length)return null;
+ if(!req)return candidates[0];
+ const n=Number(req);
+ return candidates.map((a,i)=>({a,i,num:candidateHouseNumber(a.label||a.address)})).sort((x,y)=>x.num===null&&y.num===null?x.i-y.i:x.num===null?1:y.num===null?-1:Math.abs(x.num-n)-Math.abs(y.num-n))[0].a;
+}
+function showFallbackPreview(requestedHouse,requestedPostcode,candidate,bins,sourceUrl){
+ fallbackPreview={requested:requestedHouse+", "+requestedPostcode,matched:candidate.label||candidate.address||"a nearby address",bins,sourceUrl:sourceUrl||""};
+ render();
+ const out=$("lookupResults");
+ out.classList.remove("hidden");
+ out.innerHTML="<strong>Your exact address could not be found.</strong><p>The closest matching address returned for this postcode is <strong>"+safe(fallbackPreview.matched)+"</strong>. Its bin collection dates are shown below as a guide.</p><p><strong>Important:</strong> these dates belong to the matching address, not a confirmed match for your home.</p>"+(sourceUrl?"<p><a href=\""+safe(sourceUrl)+"\" target=\"_blank\" rel=\"noopener\">Open official council source</a></p>":"");
+ toast("Exact address not found — showing the closest matching house.");
+}
+async function lookupFallbackCandidate(candidate,postcode,requestedHouse){
+ const councilHint=String(candidate.council_name||$("area").value||$("ladCode").value||"").toLowerCase();
+ const uprn=String(candidate.uprn||candidate.UPRN||candidate.property_uprn||"").trim();
+ if(uprn&&/glasgow/.test(councilHint)){
+  const result=await readGlasgowCalendar(uprn);
+  showFallbackPreview(requestedHouse,postcode,candidate,result.bins,result.sourceUrl);
+  return;
+ }
+ const payload={postcode};
+ if(candidate.id)payload.property_id=String(candidate.id);
+ else if(uprn)payload.uprn=uprn;
+ else payload.property=String(candidate.label||candidate.address||requestedHouse);
+ const r=await fetch(CONNECTOR_URL+"/lookups",{method:"POST",headers:{"Accept":"application/json","Content-Type":"application/json","Idempotency-Key":crypto.randomUUID()},body:JSON.stringify(payload)});
+ let v=await r.json();
+ if(!r.ok)throw Error(v.detail||v.problem||"The fallback council lookup returned "+r.status);
+ let rounds=0;
+ while(["queued","running","partial"].includes(v.status)&&v.id&&rounds<24){
+  if(v.status==="partial"&&v.result?.collections?.length&&v.result?.provisional!==true&&v.result?.address_match!=="postcode_representative")break;
+  await new Promise(resolve=>setTimeout(resolve,5000));
+  const sr=await fetch(CONNECTOR_URL+"/status?id="+encodeURIComponent(v.id),{headers:{Accept:"application/json"}});
+  v=await sr.json();if(!sr.ok)throw Error(v.detail||v.problem||"Fallback lookup progress could not be checked.");rounds++;
+ }
+ const result=v.result||{},collections=Array.isArray(result.collections)?result.collections:[];
+ const bins=collections.flatMap(x=>(Array.isArray(x.dates)?x.dates:[]).map(date=>({name:x.name||x.waste_type||"Collection",date,color:x.bin_colour||colorForBin(x.name||x.waste_type||""),waste:x.waste_type||x.name||"Council collection",emoji:"♻"}))).filter(x=>x.date);
+ if(result.provisional===true||result.address_match==="postcode_representative")throw Error("The council returned a postcode-representative property rather than a usable matching house.");
+ if(!bins.length)throw Error(result.notes||v.detail||"No dated collections were returned for the matching address.");
+ bins.sort((a,b)=>new Date(a.date)-new Date(b.date));
+ showFallbackPreview(requestedHouse,postcode,candidate,bins,result.source_url||result.council?.lookup_url||"");
+}
+async function readGlasgowCalendar(uprn){
+ const r=await fetch(CONNECTOR_URL+"/glasgow-calendar?uprn="+encodeURIComponent(uprn),{headers:{Accept:"text/html"}});
+ const html=await r.text();if(!r.ok)throw Error("Glasgow council calendar route returned "+r.status+".");
+ const doc=new DOMParser().parseFromString(html,"text/html"),body=doc.body?.innerText||doc.body?.textContent||"";
+ if(/given key was not present/i.test(body)||!/Refuse and Recycling Calendar/i.test(doc.title+" "+body))throw Error("Glasgow City Council did not return a usable calendar for this address.");
+ const bins=[],seen=new Set(),re=/Your next\\s+([A-Za-z ]+?)\\s+Bin day is\\s+(Today|Tomorrow|(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+\\d{1,2}(?:st|nd|rd|th)?\\s+[A-Za-z]+\\s+\\d{4})/gi;let m;
+ while((m=re.exec(body))!==null){const name=m[1].trim()+" Bin";let d;if(/^Today$/i.test(m[2])){d=new Date();d.setHours(12,0,0,0)}else if(/^Tomorrow$/i.test(m[2])){d=new Date();d.setDate(d.getDate()+1);d.setHours(12,0,0,0)}else{const raw=m[2].replace(/(\\d)(st|nd|rd|th)\\b/gi,"$1");d=new Date(raw+" 12:00:00")}if(Number.isNaN(d?.getTime()))continue;const date=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");if(seen.has(name+"|"+date))continue;seen.add(name+"|"+date);bins.push({name,date,color:colorForBin(name),waste:name+" collection",emoji:"♻"});}
+ if(!bins.length)throw Error("No collection dates could be read safely from the Glasgow council calendar.");
+ return {bins,sourceUrl:"https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN="+encodeURIComponent(uprn)};
+}
 async function lookupPostcode(){
  const postcode=$("postcode").value.trim().toUpperCase();if(!postcode){toast("Enter a full UK postcode first.");$("postcode").focus();return}
  const btn=$("lookupBtn"),out=$("lookupResults");btn.disabled=true;btn.textContent="Searching…";out.classList.remove("hidden");out.textContent="Finding the council and exact addresses…";
  try{
   const r=await fetch(`${CONNECTOR_URL}/addresses?postcode=${encodeURIComponent(postcode)}`,{headers:{Accept:"application/json"}}),raw=await r.json();if(!r.ok)throw Error(raw.detail||raw.problem||raw.error||`Postcode lookup returned ${r.status}`);
   whenIsBinsRequiredInput=raw.required_input||"property";const council=raw.council?.name||raw.council?.id||"your local council";$("area").value=raw.council?.name||$("area").value;$("ladCode").value=raw.council?.id||$("ladCode").value;lookupAddresses=Array.isArray(raw.candidates)?raw.candidates:[];selectedWhenIsBinsPropertyId="";
-  if(lookupAddresses.length){out.innerHTML='<strong>Choose your exact address</strong><p class="small">Council source: '+safe(council)+'. Select your own property below.</p><div style="display:grid;gap:8px;margin-top:10px">'+lookupAddresses.map((a,i)=>`<button class="btn secondary" style="text-align:left" onclick="selectAddress(${i})">${safe(a.label||a.address||"Address option "+(i+1))}</button>`).join("")+'</div>';return}
+  if(lookupAddresses.length){
+  const exactHouse=String($("house").value||"").trim().toLowerCase();
+  const exact=lookupAddresses.find(a=>String(a.label||a.address||"").split(",")[0].trim().toLowerCase()===exactHouse);
+  if(exact){out.innerHTML='<strong>Choose your exact address</strong><p class="small">Council source: '+safe(council)+'. Select your own property below.</p><div style="display:grid;gap:8px;margin-top:10px">'+lookupAddresses.map((a,i)=>`<button class="btn secondary" style="text-align:left" onclick="selectAddress(${i})">${safe(a.label||a.address||"Address option "+(i+1))}</button>`).join("")+'</div>';return}
+  const nearest=nearestCandidate(lookupAddresses,$("house").value);
+  out.innerHTML='<strong>Exact address not found.</strong><p class="small">I found '+safe(nearest?.label||nearest?.address||"a nearby property")+' as the closest returned address for this postcode. Checking its collection dates now…</p>';
+  try{await lookupFallbackCandidate(nearest,postcode,$("house").value.trim())}catch(fallbackError){out.innerHTML='<strong>Exact address not found.</strong><p>Closest returned address: <strong>'+safe(nearest?.label||nearest?.address||"not available")+'</strong>.</p><p>Its collection dates could not be confirmed automatically: '+safe(fallbackError.message||"unknown error")+'</p><p>Your saved address has not been changed.</p>';}
+  return;
+}
   out.innerHTML=`<strong>${safe(council)} found.</strong><p>${safe(raw.detail||"Enter the exact house number or first line of your address, then tap Check collection dates.")}</p>${raw.council?.lookup_url?`<p><a href="${safe(raw.council.lookup_url)}" target="_blank" rel="noopener">Open official council bin checker</a></p>`:""}`;
  }catch(e){
   try{
@@ -441,7 +504,14 @@ function render(){
   const verifiedSchedule=!!(s&&s.confirmed===true&&["ukbin-api","council-calendar"].includes(s.kind)&&Array.isArray(s.bins)&&s.bins.length);
   const todayStart=new Date();todayStart.setHours(0,0,0,0);
   const upcomingBins=verifiedSchedule?s.bins.filter(b=>{const dt=parseBinDate(b?.date);return !!dt&&dt>=todayStart}):[];
-  if(verifiedSchedule&&upcomingBins.length){
+  if(!verifiedSchedule&&fallbackPreview&&fallbackPreview.bins?.length){
+  $("nextDate").textContent="Closest matching address: "+fallbackPreview.matched;
+  $("addressLine").textContent="Your address could not be found. Showing collection dates for the closest returned house.";
+  $("binList").className="bins";
+  $("binList").innerHTML=fallbackPreview.bins.map(b=>`<div class="bin ${binColorClass(b.color,b.name)}"><div class="emoji">${safe(binEmoji(b.emoji,b.name))}</div><div><strong>${safe(b.name)}</strong><br><small>${safe(formatDate(b.date))}</small></div></div>`).join("")
+    +'<div class="notice" style="grid-column:1/-1"><strong>Your address cannot be found.</strong><br>The closest matching address returned is <strong>'+safe(fallbackPreview.matched)+'</strong> and its bin collection days are shown. These dates belong to that matching address and are not confirmed for your home.</div>'
+    +(fallbackPreview.sourceUrl?'<button class="btn secondary" style="grid-column:1/-1" onclick="window.open(\''+safe(fallbackPreview.sourceUrl)+'\',\'_blank\',\'noopener\')">Open official council source</button>':'');
+}else if(verifiedSchedule&&upcomingBins.length){
     const dates=upcomingBins.map(b=>parseBinDate(b.date)).filter(Boolean).sort((x,y)=>x-y);
     const nextDate=dates[0];
     $("nextDate").textContent=nextDate.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric"});

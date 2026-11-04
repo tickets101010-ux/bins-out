@@ -266,7 +266,7 @@ async function lookupPostcode(){
   if(lookupAddresses.length){
   const exactHouse=String($("house").value||"").trim().toLowerCase();
   const exact=lookupAddresses.find(a=>String(a.label||a.address||"").split(",")[0].trim().toLowerCase()===exactHouse);
-  if(exact){out.innerHTML='<strong>Choose your exact address</strong><p class="small">Council source: '+safe(council)+'. Select your own property below.</p><div style="display:grid;gap:8px;margin-top:10px">'+lookupAddresses.map((a,i)=>`<button class="btn secondary" style="text-align:left" onclick="selectAddress(${i})">${safe(a.label||a.address||"Address option "+(i+1))}</button>`).join("")+'</div>';return}
+  if(exact){const exactIndex=lookupAddresses.indexOf(exact);selectAddress(exactIndex);return}
   const nearest=nearestCandidate(lookupAddresses,$("house").value);
   out.innerHTML='<strong>Exact address not found.</strong><p class="small">I found '+safe(nearest?.label||nearest?.address||"a nearby property")+' as the closest returned address for this postcode. Checking its collection dates now…</p>';
   try{await lookupFallbackCandidate(nearest,postcode,$("house").value.trim())}catch(fallbackError){out.innerHTML='<strong>Exact address not found.</strong><p>Closest returned address: <strong>'+safe(nearest?.label||nearest?.address||"not available")+'</strong>.</p><p>Its collection dates could not be confirmed automatically: '+safe(fallbackError.message||"unknown error")+'</p><p>Your saved address has not been changed.</p>';}

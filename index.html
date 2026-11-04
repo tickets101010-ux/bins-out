@@ -268,11 +268,11 @@ async function readGlasgowCalendar(uprn){
  return {bins,sourceUrl:"https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN="+encodeURIComponent(uprn)};
 }
 async function lookupPostcode(){
- const postcode=$("postcode").value.trim().toUpperCase();if(!postcode){toast("Enter a full UK postcode first.");$("postcode").focus();return}
+ const postcode=$("postcode").value.trim().toUpperCase();fallbackPreview=null;if(!postcode){toast("Enter a full postcode first.");$("postcode").focus();return}
  const btn=$("lookupBtn"),out=$("lookupResults");btn.disabled=true;btn.textContent="Searching…";out.classList.remove("hidden");out.textContent="Finding the council and exact addresses…";
  try{
   const r=await fetch(`${CONNECTOR_URL}/addresses?postcode=${encodeURIComponent(postcode)}`,{headers:{Accept:"application/json"}}),raw=await r.json();if(!r.ok)throw Error(raw.detail||raw.problem||raw.error||`Postcode lookup returned ${r.status}`);
-  whenIsBinsRequiredInput=raw.required_input||"property";const council=raw.council?.name||raw.council?.id||"your local council";$("area").value=raw.council?.name||$("area").value;$("ladCode").value=raw.council?.id||$("ladCode").value;lookupAddresses=Array.isArray(raw.candidates)?raw.candidates:[];selectedWhenIsBinsPropertyId="";
+  whenIsBinsRequiredInput=raw.required_input||"property";const council=raw.council?.name||raw.council?.id||"your local council";if(!/east\s+renfrewshire|glasgow/i.test(String(council))){out.innerHTML="<strong>Bins Out is currently limited to Glasgow City and East Renfrewshire.</strong><p>This postcode is not supported.</p>";lookupAddresses=[];return}$("area").value=raw.council?.name||$("area").value;$("ladCode").value=raw.council?.id||$("ladCode").value;lookupAddresses=Array.isArray(raw.candidates)?raw.candidates:[];selectedWhenIsBinsPropertyId="";
   if(lookupAddresses.length){
   const exactHouse=String($("house").value||"").trim().toLowerCase();
   const exact=lookupAddresses.find(a=>String(a.label||a.address||"").split(",")[0].trim().toLowerCase()===exactHouse);
@@ -419,7 +419,7 @@ async function lookupCollections(){
  const current=activeProfile(),savedAddress=current?.address||{};const sameProperty=String(savedAddress.house||"").trim().toLowerCase()===house.toLowerCase()&&String(savedAddress.postcode||"").replace(/\s+/g,"").toUpperCase()===postcode.replace(/\s+/g,"").toUpperCase();if(!sameProperty){toast("Save this selected address first so its dates stay with the correct household.");return}
  const btn=$("collectionBtn"),out=$("collectionStatus");btn.disabled=true;btn.textContent="Checking…";out.textContent="Asking the council data service for this property's collection dates…";
  try{
-  const councilHint=[lad,$("area").value].join(" ").toLowerCase();
+  const councilHint=[lad,$("area").value].join(" ").toLowerCase();if(!/east\s+renfrewshire|glasgow/i.test(councilHint)){out.innerHTML="<strong>Unsupported council.</strong><p>Bins Out currently only covers Glasgow City and East Renfrewshire.</p>";return}
   // Glasgow's official calendar needs a verified UPRN. East Renfrewshire must use
   // the WhenIsBins council journey first: the generic UPRN route has not reliably
   // returned East Renfrewshire collection dates.

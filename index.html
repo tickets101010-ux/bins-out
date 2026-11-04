@@ -215,7 +215,7 @@ function showFallbackPreview(requestedHouse,requestedPostcode,candidate,bins,sou
  render();
  const out=$("lookupResults");
  out.classList.remove("hidden");
- out.innerHTML="<strong>Your exact address could not be found.</strong><p>The closest matching address returned for this postcode is <strong>"+safe(fallbackPreview.matched)+"</strong>. Its bin collection dates are shown below as a guide.</p><p><strong>Important:</strong> these dates belong to the matching address, not a confirmed match for your home.</p>"+(sourceUrl?"<p><a href=\""+safe(sourceUrl)+"\" target=\"_blank\" rel=\"noopener\">Open official council source</a></p>":"");
+ out.innerHTML="<strong>Closest address found</strong><p>Your exact address could not be found. The closest returned house is <strong>"+safe(fallbackPreview.matched)+"</strong>.</p><p>Its collection dates are shown as a guide. They belong to that matching address, not your confirmed home.</p>"+(sourceUrl?"<p><a href=\""+safe(sourceUrl)+"\" target=\"_blank\" rel=\"noopener\">View council source</a></p>":"")+"<button class=\"btn\" onclick=\"saveAddress()\">Save my address</button>";
  toast("Exact address not found — showing the closest matching house.");
 }
 async function lookupFallbackCandidate(candidate,postcode,requestedHouse){
@@ -651,7 +651,7 @@ if("serviceWorker" in navigator && location.protocol.startsWith("http"))navigato
 if($("connectorUrl"))$("connectorUrl").value=CONNECTOR_URL;
 $("house").addEventListener("input",()=>{if(selectedAddressLabel){selectedWhenIsBinsPropertyId="";selectedAddressLabel="";$("uprn").value="";}});
 $("postcode").addEventListener("input",()=>{selectedWhenIsBinsPropertyId="";selectedAddressLabel="";selectedUprnCandidates=[];lookupAddresses=[];whenIsBinsRequiredInput="property";$("uprn").value="";$("ladCode").value="";$("area").value="";});
-load();
+load();if(!activeProfile()?.address)showTab("setup");
 </script>
 </body>
 </html>

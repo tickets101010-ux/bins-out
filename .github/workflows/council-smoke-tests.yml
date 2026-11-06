@@ -22,7 +22,7 @@ jobs:
 
           const cases = [
             { postcode: 'G46 7DS', house: '58', expectedCouncil: 'east renfrewshire' },
-            { postcode: 'G53 7LB', house: '74', expectedCouncil: 'glasgow' }
+            { postcode: 'G41 1RH', house: '75', expectedCouncil: 'glasgow' }
           ];
           let failed = false;
           for (const item of cases) {

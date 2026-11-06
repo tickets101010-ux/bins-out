@@ -1,4 +1,4 @@
-// Bins Out connector V16 — Glasgow UPRN resolver now uses the council GMS-UPRN locator.
+// Bins Out connector V17 — Glasgow UPRN resolver now uses the council GMS-UPRN locator.
 const UKBIN="https://ukbinday.co.uk/api/v2", WHENISBINS="https://whenisbins.com/v1";
 const ALLOWED_ORIGINS=new Set(["https://tickets101010-ux.github.io","http://localhost:8788"]);
 function cors(origin){return {"Access-Control-Allow-Origin":ALLOWED_ORIGINS.has(origin)?origin:"https://tickets101010-ux.github.io","Access-Control-Allow-Methods":"GET, POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type, Accept, Idempotency-Key","Vary":"Origin"}}
@@ -129,7 +129,7 @@ export default {async fetch(request, env){
     const gd=await gr.json().catch(()=>null);
     const cs=Array.isArray(gd?.candidates)?gd.candidates:[];
     const wanted=norm(address), house=(wanted.match(/^\d+/)||[""])[0];
-    const ranked=cs.map(c=>{const a=norm(c.address||c.attributes?.Match_addr||"");return {...c,_a:a,_score:(house&&a.startsWith(house+" ")?1:0)+(a.includes(wanted.replace(/^\d+\s*/,""))?1:0),_uprn:String(c.attributes?.UPRN||c.attributes?.uprn||"").trim()};}).filter(c=>c._uprn).sort((a,b)=>b._score-a._score);
+    const ranked=cs.map(c=>{const a=norm(c.address||c.attributes?.Match_addr||"");return {...c,_a:a,_score:(house&&a.startsWith(house+" ")?1:0)+(a.includes(wanted.replace(/^\d+\s*/,""))?1:0),_uprn:String(c.attributes?.UPRN||c.attributes?.uprn||c.attributes?.LOCATOR_ID||c.attributes?.Locator_ID||c.attributes?.LOCATOR_DESCRIPTION||c.attributes?.Locator_DESCRIPTION||"").trim()};}).filter(c=>c._uprn).sort((a,b)=>b._score-a._score);
     const best=ranked[0];
     if(best&&best._score>=2)return json({status:"matched",uprn:best._uprn,matched_address:best.address||best.attributes?.Match_addr||address,postcode,council_name:"Glasgow City Council"},200,h);
     if(ranked.length)return json({status:"choose",detail:"Choose the exact Glasgow property.",candidates:ranked.slice(0,10).map(c=>({uprn:c._uprn,address:c.address||c.attributes?.Match_addr||"",postcode,council_name:"Glasgow City Council"}))},200,h);

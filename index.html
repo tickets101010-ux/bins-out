@@ -70,7 +70,7 @@
  </div>
 </section>
 </main>
-<div class="footer">Bins Out · V14 · Glasgow council address + live calendar<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
+<div class="footer">Bins Out · V15 · Glasgow council address + live calendar<br>Collection dates are only shown as verified when a real source has been connected. Always follow your local council for changes.</div>
 </div>
 <div id="toast" class="toast hidden" role="status"></div>
 <div id="modalBack" class="modalback hidden" onclick="if(event.target===this)closeModal()"><div class="modal"><h2 id="modalTitle">Reminder preview</h2><p id="modalText"></p><button class="btn" onclick="closeModal()">Got it</button></div></div>
@@ -258,6 +258,7 @@ async function readGlasgowCalendar(uprn){
  return {bins,sourceUrl:"https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN="+encodeURIComponent(uprn)};
 }
 async function lookupPostcode(){
+ // V15: Glasgow UPRNs are resolved through the connector public resolver; no OS Places secret is required in the browser.
  const postcode=$("postcode").value.trim().toUpperCase();fallbackPreview=null;if(!postcode){toast("Enter a full postcode first.");$("postcode").focus();return}
  const btn=$("lookupBtn"),out=$("lookupResults");btn.disabled=true;btn.textContent="Searching…";out.classList.remove("hidden");out.textContent="Finding the council and exact addresses…";
  try{

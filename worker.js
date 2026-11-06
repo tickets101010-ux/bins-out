@@ -1,4 +1,4 @@
-// Bins Out connector — WhenIsBins address and collection API proxy, with legacy routes retained.
+// Bins Out connector V15 — Glasgow/East Renfrewshire address and collection API proxy. No OS Places secret is required for the Glasgow resolver.
 const UKBIN="https://ukbinday.co.uk/api/v2", WHENISBINS="https://whenisbins.com/v1";
 const ALLOWED_ORIGINS=new Set(["https://tickets101010-ux.github.io","http://localhost:8788"]);
 function cors(origin){return {"Access-Control-Allow-Origin":ALLOWED_ORIGINS.has(origin)?origin:"https://tickets101010-ux.github.io","Access-Control-Allow-Methods":"GET, POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type, Accept, Idempotency-Key","Vary":"Origin"}}

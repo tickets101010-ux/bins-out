@@ -1,4 +1,4 @@
-// Bins Out connector V15 — Glasgow/East Renfrewshire address and collection API proxy. No OS Places secret is required for the Glasgow resolver.
+// Bins Out connector V16 — Glasgow UPRN resolver now uses the council GMS-UPRN locator.
 const UKBIN="https://ukbinday.co.uk/api/v2", WHENISBINS="https://whenisbins.com/v1";
 const ALLOWED_ORIGINS=new Set(["https://tickets101010-ux.github.io","http://localhost:8788"]);
 function cors(origin){return {"Access-Control-Allow-Origin":ALLOWED_ORIGINS.has(origin)?origin:"https://tickets101010-ux.github.io","Access-Control-Allow-Methods":"GET, POST, OPTIONS","Access-Control-Allow-Headers":"Content-Type, Accept, Idempotency-Key","Vary":"Origin"}}
@@ -123,7 +123,7 @@ export default {async fetch(request, env){
   if(!postcode||!address)return json({problem:"invalid_request",detail:"A postcode and selected address are required."},400,h);
   const norm=x=>String(x||"").toUpperCase().replace(/\bST\b/g,"STREET").replace(/\bRD\b/g,"ROAD").replace(/\bAVE\b/g,"AVENUE").replace(/\bCRES\b/g,"CRESCENT").replace(/\bDR\b/g,"DRIVE").replace(/\bLN\b/g,"LANE").replace(/\bGDNS\b/g,"GARDENS").replace(/\bPL\b/g,"PLACE").replace(/[^A-Z0-9]+/g," ").trim().replace(/\s+/g," ");
   try{
-    const g=new URL("https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-Address/GEOCODESERVICE/GeocodeServer/findAddressCandidates");
+    const g=new URL("https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates");
     g.searchParams.set("SingleLine",address+", "+postcode);g.searchParams.set("f","json");g.searchParams.set("maxLocations","10");
     const gr=await fetch(g.toString(),{headers:{Accept:"application/json"}});
     const gd=await gr.json().catch(()=>null);

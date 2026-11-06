@@ -1,4 +1,4 @@
-const CACHE = "bins-out-v32";
+const CACHE = "bins-out-v33";
 const APP_SHELL = [
   "./",
   "./index.html",

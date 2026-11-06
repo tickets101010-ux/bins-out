@@ -121,65 +121,22 @@ export default {async fetch(request, env){
   const postcode=(u.searchParams.get("postcode")||"").trim().toUpperCase();
   const address=(u.searchParams.get("address")||"").trim();
   if(!postcode||!address)return json({problem:"invalid_request",detail:"A postcode and selected address are required."},400,h);
-  const apiKey=String(env&&env.OS_PLACES_API_KEY||"").trim();
-  const normalise=s=>String(s||"").toUpperCase()
-   .replace(/\bST\b/g,"STREET").replace(/\bRD\b/g,"ROAD").replace(/\bAVE\b/g,"AVENUE")
-   .replace(/\bCRES\b/g,"CRESCENT").replace(/\bDR\b/g,"DRIVE").replace(/\bLN\b/g,"LANE")
-   .replace(/\bGDNS\b/g,"GARDENS").replace(/\bPL\b/g,"PLACE")
-   .replace(/[^A-Z0-9]+/g," ").trim().replace(/\s+/g," ");
-  const rankAddress=(rows)=>{
-   const q=normalise(address),tokens=[...new Set(q.split(" ").filter(t=>t.length>1))];
-   const ranked=rows.map(a=>{const candidate=normalise(a.address),candidateTokens=new Set(candidate.split(" "));const hits=tokens.filter(t=>candidateTokens.has(t));return {...a,score:tokens.length?hits.length/tokens.length:0,exact:candidate===q};})
-    .sort((a,b)=>Number(b.exact)-Number(a.exact)||b.score-a.score);
-   const exact=ranked.filter(a=>a.exact),confident=ranked.filter(a=>a.score===1);
-   if(exact.length===1||(!exact.length&&confident.length===1)){const a=(exact.length?exact:confident)[0];return json({status:"matched",uprn:a.uprn,matched_address:a.address,postcode:a.postcode,council_name:a.council_name},200,h);}
-   const likely=(exact.length?exact:ranked.filter(a=>a.score>=0.5)).slice(0,12).map(({uprn,address,postcode,building_number,thoroughfare,council_name})=>({uprn,address,postcode,building_number,thoroughfare,council_name}));
-   return json({status:"choose",detail:likely.length?"Several address records are possible. Select the exact property before saving its UPRN.":"No confident match was found for this address and postcode. No UPRN has been guessed.",candidates:likely},200,h);
-  };
+  const norm=x=>String(x||"").toUpperCase().replace(/\bST\b/g,"STREET").replace(/\bRD\b/g,"ROAD").replace(/\bAVE\b/g,"AVENUE").replace(/\bCRES\b/g,"CRESCENT").replace(/\bDR\b/g,"DRIVE").replace(/\bLN\b/g,"LANE").replace(/\bGDNS\b/g,"GARDENS").replace(/\bPL\b/g,"PLACE").replace(/[^A-Z0-9]+/g," ").trim().replace(/\s+/g," ");
   try{
-   if(apiKey){
-    const target=new URL("https://api.os.uk/search/places/v1/postcode");
-    target.searchParams.set("postcode",postcode);target.searchParams.set("dataset","DPA");target.searchParams.set("maxresults","100");target.searchParams.set("key",apiKey);
-    const r=await fetch(target.toString(),{headers:{Accept:"application/json"}});
-    const data=await r.json().catch(()=>null);
-    if(!r.ok||!data)return json({problem:"address_provider_error",detail:"Ordnance Survey address lookup failed ("+r.status+"). Check the OS Places API key and access plan."},502,h);
-    const rows=Array.isArray(data.results)?data.results:[];
-    const addresses=rows.map(row=>row.DPA||row.LPI).filter(a=>a&&a.UPRN).map(a=>({uprn:String(a.UPRN),address:String(a.ADDRESS||"").trim(),postcode:String(a.POSTCODE||a.POSTCODE_LOCATOR||postcode).trim(),building_number:String(a.BUILDING_NUMBER||a.PAO_START_NUMBER||"").trim(),thoroughfare:String(a.THOROUGHFARE_NAME||a.STREET_DESCRIPTION||"").trim(),council_name:String(a.LOCAL_CUSTODIAN_CODE_DESCRIPTION||a.ADMINISTRATIVE_AREA||"").trim()})).filter(a=>a.address&&/^\d{1,12}$/.test(a.uprn));
-    return rankAddress(addresses);
-   }
-   // No OS key: Glasgow's own calendar is already keyed by UPRN. Use the free
-   // public UPRN postcode index to enumerate the properties, then ask Glasgow
-   // for each calendar until the returned property address matches the user.
-   const p=await fetch("https://api.uprns.io/postcodes/"+encodeURIComponent(postcode)+"?page=1",{headers:{Accept:"application/json"}});
-   const pd=await p.json().catch(()=>null);
-   const ids=Array.isArray(pd?.uprns)?pd.uprns.map(x=>String(x)):Array.isArray(pd?.data?.uprns)?pd.data.uprns.map(x=>String(x)):[];
-   if(!ids.length)return json({problem:"address_provider_unavailable",detail:"No UPRNs were returned for this postcode."},502,h);
-   const wanted=normalise(address);
-   const houseToken=(wanted.match(/^\d+/)||[""])[0];
-   const hits=[];
-   for(let i=0;i<ids.length&&hits.length<3;i+=5){
-    const batch=ids.slice(i,i+5).map(async uprn=>{
-      try{
-       const r=await fetch("https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN="+encodeURIComponent(uprn),{headers:{Accept:"text/html"}});
-       const html=await r.text();if(!r.ok||!/Refuse and Recycling Calendar/i.test(html))return null;
-       const title=(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)||[])[1]||"";
-       const text=html.replace(/<script[\s\S]*?<\/script>/gi," ").replace(/<style[\s\S]*?<\/style>/gi," ").replace(/<[^>]+>/g," ").replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/\s+/g," ").trim();
-       const head=(text.match(/Refuse and Recycling Calendar\s+([0-9]+\s+[^.]{3,120})/i)||[])[1]||title;
-       const candidate=String(head).trim();
-       const first=normalise(candidate);
-       const match=houseToken&&new RegExp("^"+houseToken+"(?:\\s|,)").test(first)&&first.includes(wanted.replace(/^\d+\s*/,""));
-       return match?{uprn,address:candidate,postcode,council_name:"Glasgow City Council"}:null;
-      }catch{return null}
-    });
-    const found=(await Promise.all(batch)).filter(Boolean);
-    hits.push(...found);
-   }
-   if(hits.length===1)return json({status:"matched",...hits[0]},200,h);
-   if(hits.length>1)return json({status:"choose",detail:"More than one Glasgow property matched. Select the exact property before saving its UPRN.",candidates:hits},200,h);
-   return json({status:"choose",detail:"The Glasgow postcode was found, but the exact property could not be matched automatically. No UPRN has been guessed.",candidates:[]},200,h);
-  }catch(e){return json({problem:"upstream_unavailable",detail:"Address lookup is temporarily unavailable."},502,h)}
- }
- if(u.pathname==="/addresses"&&request.method==="GET"){
+    const g=new URL("https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-Address/GEOCODESERVICE/GeocodeServer/findAddressCandidates");
+    g.searchParams.set("SingleLine",address+", "+postcode);g.searchParams.set("f","json");g.searchParams.set("maxLocations","10");
+    const gr=await fetch(g.toString(),{headers:{Accept:"application/json"}});
+    const gd=await gr.json().catch(()=>null);
+    const cs=Array.isArray(gd?.candidates)?gd.candidates:[];
+    const wanted=norm(address), house=(wanted.match(/^\d+/)||[""])[0];
+    const ranked=cs.map(c=>{const a=norm(c.address||c.attributes?.Match_addr||"");return {...c,_a:a,_score:(house&&a.startsWith(house+" ")?1:0)+(a.includes(wanted.replace(/^\d+\s*/,""))?1:0),_uprn:String(c.attributes?.UPRN||c.attributes?.uprn||"").trim()};}).filter(c=>c._uprn).sort((a,b)=>b._score-a._score);
+    const best=ranked[0];
+    if(best&&best._score>=2)return json({status:"matched",uprn:best._uprn,matched_address:best.address||best.attributes?.Match_addr||address,postcode,council_name:"Glasgow City Council"},200,h);
+    if(ranked.length)return json({status:"choose",detail:"Choose the exact Glasgow property.",candidates:ranked.slice(0,10).map(c=>({uprn:c._uprn,address:c.address||c.attributes?.Match_addr||"",postcode,council_name:"Glasgow City Council"}))},200,h);
+    return json({status:"choose",detail:"The Glasgow address could not be matched automatically. No UPRN has been guessed.",candidates:[]},200,h);
+  }catch(e){return json({problem:"upstream_unavailable",detail:"Glasgow's address service is temporarily unavailable."},502,h)}
+}
+if(u.pathname==="/addresses"&&request.method==="GET"){
   const postcode=(u.searchParams.get("postcode")||"").trim();if(!postcode)return json({problem:"invalid_postcode",detail:"Enter a full UK postcode."},400,h);
   try{return await proxy(`${WHENISBINS}/addresses?postcode=${encodeURIComponent(postcode)}`,{headers:{Accept:"application/json"}},h)}catch(e){return json({problem:"upstream_unavailable",detail:"Address service is temporarily unavailable."},502,h)}
  }

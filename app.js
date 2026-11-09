@@ -29,17 +29,39 @@ function addressLabel(x){
 }
 
 async function findAddresses(postcode){
-  const base=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(postcode));
-  const candidates=Array.isArray(base.candidates)?base.candidates:[];
-  if(!candidates.length){
-    throw Error(base.required_input||base.detail||'No properties were returned for that postcode.');
+  const seen=new Set(), all=[];
+  let next=WB+'/addresses?postcode='+encodeURIComponent(postcode);
+  let pages=0;
+  let council=null;
+
+  while(next && pages<50){
+    pages++;
+    const d=await getJSON(next);
+    if(!council)council=d.council||d.collecting_council||null;
+    const rows=Array.isArray(d.candidates)?d.candidates:[];
+    for(const x of rows){
+      const id=String(x?.id||x?.uprn||x?.property_id||addressLabel(x));
+      if(!seen.has(id)){seen.add(id);all.push(x)}
+    }
+
+    // Follow API pagination wherever the provider exposes it.
+    // Supports common next-link/cursor shapes without guessing house numbers.
+    let n=d.next||d.next_page||d.nextPage||d.next_url||d.nextUrl||d.links?.next||d.pagination?.next||d.meta?.next;
+    if(typeof n==='object'&&n)n=n.url||n.href||n.link||n.next||null;
+    if(!n){
+      const cursor=d.next_cursor||d.nextCursor||d.pagination?.next_cursor||d.meta?.next_cursor;
+      if(cursor)n=WB+'/addresses?postcode='+encodeURIComponent(postcode)+'&cursor='+encodeURIComponent(cursor);
+    }
+    next=n?new URL(String(n),WB).toString():null;
   }
-  return {
-    candidates,
-    council:base.council||base.collecting_council||null,
-    required:base.required_input||'property_id',
-    input_options:base.input_options||[]
-  };
+
+  if(!all.length)throw Error('No properties were returned for that postcode.');
+  all.sort((a,b)=>{
+    const na=parseInt((addressLabel(a).match(/^\\d+/)||['999999'])[0],10);
+    const nb=parseInt((addressLabel(b).match(/^\\d+/)||['999999'])[0],10);
+    return na-nb;
+  });
+  return {candidates:all,council,required:'property_id',input_options:[]};
 }
 function showCandidates(a){
   $('#addresses').innerHTML=a.map((x,i)=>{

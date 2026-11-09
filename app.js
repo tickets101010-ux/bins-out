@@ -45,9 +45,47 @@ function addRows(all,seen,rows){
   }
 }
 
+async function getText(url){
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),20000);
+  try{
+    let r;
+    try{r=await fetch(url,{headers:{Accept:'text/html,application/json'},signal:ctl.signal})}
+    catch(e){r=await fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url),{signal:ctl.signal})}
+    if(!r.ok)throw Error('Live service returned HTTP '+r.status);
+    return await r.text();
+  }catch(e){
+    if(e.name==='AbortError')throw Error('The live service took too long to respond.');
+    throw e;
+  }finally{clearTimeout(timer)}
+}
+
+function normAddress(s){
+  return String(s||'').toUpperCase().replace(/\\bST\\b/g,'STREET').replace(/\\bRD\\b/g,'ROAD').replace(/\\bAVE\\b/g,'AVENUE').replace(/\\bCRES\\b/g,'CRESCENT').replace(/\\bDR\\b/g,'DRIVE').replace(/\\bLN\\b/g,'LANE').replace(/\\bGDNS\\b/g,'GARDENS').replace(/\\bPL\\b/g,'PLACE').replace(/[^A-Z0-9]+/g,' ').trim().replace(/\\s+/g,' ');
+}
+
+async function glasgowAddresses(postcode){
+  const u='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-Address/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(postcode)+'&f=json&maxLocations=100&outFields=*';
+  const d=JSON.parse(await getText(u));
+  const rows=Array.isArray(d?.candidates)?d.candidates:[];
+  const seen=new Set(),out=[];
+  for(const c of rows){
+    const label=String(c?.address||c?.attributes?.Match_addr||'').trim();
+    const id=String(c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||c?.attributes?.LOCATOR_DESCRIPTION||'').trim();
+    if(!label||!id||seen.has(label))continue;
+    seen.add(label);
+    out.push({id,label,postcode,council:{id:'S12000049',name:'Glasgow City Council'}});
+  }
+  out.sort((a,b)=>{
+    const na=parseInt((a.label.match(/^\\d+/)||['999999'])[0],10);
+    const nb=parseInt((b.label.match(/^\\d+/)||['999999'])[0],10);
+    return na-nb||a.label.localeCompare(b.label);
+  });
+  if(!out.length)throw Error('Glasgow returned no properties for that postcode.');
+  return {candidates:out,council:{id:'S12000049',name:'Glasgow City Council'},required:'property_id',input_options:[]};
+}
+
 async function findAddresses(postcode){
   const seen=new Set(),all=[];
-  const queried=new Set();
   let council=null;
 
   async function query(q=''){
@@ -60,45 +98,36 @@ async function findAddresses(postcode){
 
   const first=await query();
 
-  // WhenIsBins does not use a "next page" button for address discovery.
-  // For long council lists it exposes road/area choices in input_options;
-  // query each of those choices to obtain the actual properties.
+  // Glasgow's own address gazetteer is the authoritative property list.
+  // Use it instead of the abbreviated WhenIsBins candidate batch.
+  if((council?.id||council?.gss)==='S12000049')return glasgowAddresses(postcode);
+
   const opts=first?.input_options;
   const choices=Array.isArray(opts?.options)?opts.options:[];
   for(const o of choices){
     const value=String(o?.value??o?.id??o?.label??'').trim();
-    if(!value||queried.has(value))continue;
-    queried.add(value);
-    try{await query(value)}catch(e){
-      // One unavailable road must not destroy the postcode lookup.
-    }
+    if(!value)continue;
+    try{await query(value)}catch(e){}
   }
 
-  // Some responses expose a few candidates but omit the road picker. In that
-  // case use the street portion already supplied by the council labels.
   if(!choices.length&&all.length){
     const streets=new Set();
     for(const x of all){
-      const label=addressLabel(x).replace(/^\s*\d+[A-Z]?\s+/i,'');
+      const label=addressLabel(x).replace(/^\\s*\\d+[A-Z]?\\s+/i,'');
       const parts=label.split(',').map(s=>s.trim()).filter(Boolean);
       if(parts.length>=2)streets.add(parts[0]);
     }
-    for(const street of streets){
-      if(queried.has(street))continue;
-      queried.add(street);
-      try{await query(street)}catch(e){}
-    }
+    for(const street of streets)try{await query(street)}catch(e){}
   }
 
   if(!all.length)throw Error('No properties were returned for that postcode.');
   all.sort((a,b)=>{
-    const na=parseInt((addressLabel(a).match(/^\d+/)||['999999'])[0],10);
-    const nb=parseInt((addressLabel(b).match(/^\d+/)||['999999'])[0],10);
+    const na=parseInt((addressLabel(a).match(/^\\d+/)||['999999'])[0],10);
+    const nb=parseInt((addressLabel(b).match(/^\\d+/)||['999999'])[0],10);
     return na-nb;
   });
   return {candidates:all,council,required:'property_id',input_options:[]};
 }
-
 function showCandidates(a){
   $('#addresses').innerHTML=a.map((x,i)=>{
     const label=addressLabel(x)||('Property '+(i+1));

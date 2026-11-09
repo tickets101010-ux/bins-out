@@ -230,7 +230,7 @@ async function selectAddress(x){
       // candidate. Try the exact-match candidates until the council calendar
       // actually returns dated collections.
       const wanted=normAddress(current.label);
-      const house=(wanted.match(/^\\d+/)||[''])[0];
+      const house=(wanted.match(/^\d+/)||[''])[0];
       if(!house)throw Error('The selected Glasgow address has no house number.');
 
       const candidates=[];

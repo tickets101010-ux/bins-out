@@ -5,7 +5,7 @@ let current=null,deferred=null;
 
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const pc=s=>s.trim().toUpperCase().replace(/\\s+/g,' ');
+const pc=s=>s.trim().toUpperCase().replace(/\s+/g,' ');
 const date=s=>new Date(s+'T12:00:00').toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
 
 function msg(t,e=false){$('#status').innerHTML=t;$('#status').className='status '+(e?'error':'');$('#status').classList.remove('hidden')}
@@ -44,7 +44,7 @@ async function findAddresses(postcode){
     const label=addressLabel(x);
     const parts=label.split(',').map(v=>v.trim());
     if(parts.length>=3){
-      const road=parts[0].replace(/^\\d+[A-Z]?\\s+/,'').trim();
+      const road=parts[0].replace(/^\d+[A-Z]?\s+/,'').trim();
       if(road) streets.add(road);
     }
   }

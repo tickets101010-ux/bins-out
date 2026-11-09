@@ -255,28 +255,6 @@ async function selectAddress(x){
       });
     }
     const key=crypto.randomUUID();
-        let state=await getJSON(WB+'/lookups',{
-          method:'POST',
-          headers:{'Content-Type':'application/json','Idempotency-Key':key},
-          body:JSON.stringify({postcode:current.postcode,property_id:exact.id})
-        });
-        const lookupId=String(state?.id||state?.lookup_id||'');
-        if(!lookupId)throw Error(glErr.message||state?.detail||'The live collection lookup did not return an ID.');
-
-        for(let i=0;i<18;i++){
-          const status=String(state?.status||'').toLowerCase();
-          if(status==='done')return renderSchedule(state.result||state.schedule||state);
-          if(status==='partial' && state?.result)return renderSchedule(state.result);
-          if(status==='failed')throw Error(state?.detail||state?.problem||glErr.message||'The council lookup failed.');
-          const wait=Math.min(12,Math.max(3,Number(state?.retry_after_seconds||state?.retryAfterSeconds||5)));
-          await new Promise(r=>setTimeout(r,wait*1000));
-          state=await getJSON(WB+'/lookups/'+encodeURIComponent(lookupId));
-        }
-        throw Error(glErr.message||'The council lookup is taking longer than usual. Please try again shortly.');
-      }
-    }
-
-    const key=crypto.randomUUID();
     const created=await getJSON(WB+'/lookups',{
       method:'POST',
       headers:{'Content-Type':'application/json','Idempotency-Key':key},

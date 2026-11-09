@@ -29,13 +29,37 @@ function addressLabel(x){
 }
 
 async function findAddresses(postcode){
-  const d=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(postcode));
-  const candidates=Array.isArray(d.candidates)?d.candidates:[];
+  const base=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(postcode));
+  let candidates=Array.isArray(base.candidates)?base.candidates:[];
   if(!candidates.length){
-    const ri=d.required_input||d.detail||'';
+    const ri=base.required_input||base.detail||'';
     throw Error(ri?'The service could not find a property for that postcode.':'No properties were returned for that postcode.');
   }
-  return {candidates,council:d.council||d.collecting_council||null,required:d.required_input||'property_id',input_options:d.input_options||[]};
+
+  // Some postcode responses are deliberately narrow. When the returned
+  // properties reveal a street, ask the service for that street as well;
+  // this exposes the rest of the council's property list without guessing
+  // house numbers.
+  const labels=candidates.map(addressLabel);
+  const streets=[];
+  for(const label of labels){
+    const m=label.match(/^\\d+[A-Z]?\\s+(.+?),\\s+GLASGOW,\\s+G\\d/i);
+    if(m)streets.push(m[1].trim());
+    else{
+      const parts=label.split(',').map(x=>x.trim());
+      if(parts.length>=3 && /drive|road|street|avenue|lane|place|crescent|court|terrace|way|close|gardens|park/i.test(parts[1])) streets.push(parts[1]);
+    }
+  }
+  const street=[...new Set(streets)][0];
+  if(street && candidates.length<20){
+    try{
+      const q=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(postcode)+'&q='+encodeURIComponent(street));
+      const extra=Array.isArray(q.candidates)?q.candidates:[];
+      const seen=new Set(candidates.map(x=>String(x.id)));
+      for(const x of extra)if(!seen.has(String(x.id))){candidates.push(x);seen.add(String(x.id))}
+    }catch{}
+  }
+  return {candidates,council:base.council||base.collecting_council||null,required:base.required_input||'property_id',input_options:base.input_options||[]};
 }
 
 function showCandidates(a){

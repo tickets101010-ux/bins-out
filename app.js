@@ -223,9 +223,26 @@ async function selectAddress(x){
         }
       }catch(scheduleError){
         // 404 means WhenIsBins has no stored schedule for this UPRN yet.
-        // Fall through to Glasgow's own live calendar rather than inventing dates.
+        // Try its own exact-address discovery as a second GET-only route.
         const message=String(scheduleError.message||'');
         if(!/HTTP 404|no_schedule/i.test(message)) throw scheduleError;
+        try{
+          const street=String(current.label||'').replace(/^\s*\d+[A-Z]?\s+/i,'').split(',')[0].trim();
+          if(street){
+            const ad=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(current.postcode)+'&q='+encodeURIComponent(street));
+            const wanted=normAddress(current.label);
+            const match=(Array.isArray(ad?.candidates)?ad.candidates:[])
+              .map(v=>({v,n:normAddress(addressLabel(v))}))
+              .find(v=>v.n===wanted);
+            const token=String(match?.v?.id||'').replace(/^p:/,'');
+            if(token){
+              const sr2=await getJSON(WB+'/schedules/'+encodeURIComponent(token));
+              if(sr2 && Array.isArray(sr2.collections))return renderSchedule(sr2);
+            }
+          }
+        }catch(secondScheduleError){
+          // Keep the council fallback below. No guessed collection dates.
+        }
       }
 
       const cal='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(best.uprn);

@@ -60,7 +60,7 @@ async function getText(url){
 }
 
 function normAddress(s){
-  return String(s||'').toUpperCase().replace(/\\bST\\b/g,'STREET').replace(/\\bRD\\b/g,'ROAD').replace(/\\bAVE\\b/g,'AVENUE').replace(/\\bCRES\\b/g,'CRESCENT').replace(/\\bDR\\b/g,'DRIVE').replace(/\\bLN\\b/g,'LANE').replace(/\\bGDNS\\b/g,'GARDENS').replace(/\\bPL\\b/g,'PLACE').replace(/[^A-Z0-9]+/g,' ').trim().replace(/\\s+/g,' ');
+  return String(s||'').toUpperCase().replace(/\bST\b/g,'STREET').replace(/\bRD\b/g,'ROAD').replace(/\bAVE\b/g,'AVENUE').replace(/\bCRES\b/g,'CRESCENT').replace(/\bDR\b/g,'DRIVE').replace(/\bLN\b/g,'LANE').replace(/\bGDNS\b/g,'GARDENS').replace(/\bPL\b/g,'PLACE').replace(/[^A-Z0-9]+/g,' ').trim().replace(/\s+/g,' ');
 }
 
 async function glasgowAddresses(postcode){
@@ -76,8 +76,8 @@ async function glasgowAddresses(postcode){
     out.push({id,label,postcode,council:{id:'S12000049',name:'Glasgow City Council'}});
   }
   out.sort((a,b)=>{
-    const na=parseInt((a.label.match(/^\\d+/)||['999999'])[0],10);
-    const nb=parseInt((b.label.match(/^\\d+/)||['999999'])[0],10);
+    const na=parseInt((a.label.match(/^\d+/)||['999999'])[0],10);
+    const nb=parseInt((b.label.match(/^\d+/)||['999999'])[0],10);
     return na-nb||a.label.localeCompare(b.label);
   });
   if(!out.length)throw Error('Glasgow returned no properties for that postcode.');
@@ -113,7 +113,7 @@ async function findAddresses(postcode){
   if(!choices.length&&all.length){
     const streets=new Set();
     for(const x of all){
-      const label=addressLabel(x).replace(/^\\s*\\d+[A-Z]?\\s+/i,'');
+      const label=addressLabel(x).replace(/^\s*\d+[A-Z]?\s+/i,'');
       const parts=label.split(',').map(s=>s.trim()).filter(Boolean);
       if(parts.length>=2)streets.add(parts[0]);
     }
@@ -122,8 +122,8 @@ async function findAddresses(postcode){
 
   if(!all.length)throw Error('No properties were returned for that postcode.');
   all.sort((a,b)=>{
-    const na=parseInt((addressLabel(a).match(/^\\d+/)||['999999'])[0],10);
-    const nb=parseInt((addressLabel(b).match(/^\\d+/)||['999999'])[0],10);
+    const na=parseInt((addressLabel(a).match(/^\d+/)||['999999'])[0],10);
+    const nb=parseInt((addressLabel(b).match(/^\d+/)||['999999'])[0],10);
     return na-nb;
   });
   return {candidates:all,council,required:'property_id',input_options:[]};
@@ -131,7 +131,7 @@ async function findAddresses(postcode){
 function showCandidates(a){
   const rows=[...a].sort((x,y)=>{
     const ax=addressLabel(x),ay=addressLabel(y);
-    const mx=ax.match(/\\b(\\d+)\\s*([A-Z]?)\\b/i),my=ay.match(/\\b(\\d+)\\s*([A-Z]?)\\b/i);
+    const mx=ax.match(/\b(\d+)\s*([A-Z]?)\b/i),my=ay.match(/\b(\d+)\s*([A-Z]?)\b/i);
     const nx=mx?Number(mx[1]):999999,ny=my?Number(my[1]):999999;
     return nx-ny||(mx?.[2]||'').localeCompare(my?.[2]||'')||ax.localeCompare(ay);
   });
@@ -205,28 +205,93 @@ async function selectAddress(x){
                   });
       if(!exact?.id)throw Error('WhenIsBins could not identify that exact Glasgow property.');
 
-      // A schedule 404 means this property has not been checked yet. Create
-      // the official lookup, then wait for the council result.
-      const key=crypto.randomUUID();
-      let state=await getJSON(WB+'/lookups',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','Idempotency-Key':key},
-        body:JSON.stringify({postcode:current.postcode,property_id:exact.id})
-      });
-      const lookupId=String(state?.id||state?.lookup_id||'');
-      if(!lookupId)throw Error(state?.detail||'The live collection lookup did not return an ID.');
+      // Glasgow City Council publishes the live calendar directly from the
+      // property's UPRN. Resolve the selected address against the council
+      // gazetteer, then read the official calendar. This avoids relying on a
+      // stale/abbreviated third-party property lookup.
+      try{
+        const g='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(current.label+', '+current.postcode)+'&f=json&maxLocations=10&outFields=*';
+        const gd=JSON.parse(await getText(g));
+        const wanted=normAddress(current.label);
+        const house=(wanted.match(/^\d+/)||[''])[0];
+        const cs=Array.isArray(gd?.candidates)?gd.candidates:[];
+        const ranked=cs.map(v=>{
+          const a=normAddress(v.address||v.attributes?.Match_addr||'');
+          const uprn=String(v.attributes?.UPRN||v.attributes?.uprn||v.attributes?.LOCATOR_ID||v.attributes?.Locator_ID||v.attributes?.LOCATOR_DESCRIPTION||'').trim();
+          let score=0;
+          if(uprn)score+=1;
+          if(house&&a.startsWith(house+' '))score+=2;
+          if(a===wanted)score+=5;
+          else if(a.includes(wanted))score+=2;
+          return {v,a,uprn,score};
+        }).filter(v=>v.uprn).sort((a,b)=>b.score-a.score);
 
-      for(let i=0;i<18;i++){
-        const status=String(state?.status||'').toLowerCase();
-        if(status==='done')return renderSchedule(state.result||state.schedule||state);
-        if(status==='partial' && state?.result)return renderSchedule(state.result);
-        if(status==='failed')throw Error(state?.detail||state?.problem||'The council lookup failed.');
+        const best=ranked[0];
+        if(!best || best.score<3)throw Error('Glasgow could not match that exact property to a UPRN.');
 
-        const wait=Math.min(12,Math.max(3,Number(state?.retry_after_seconds||state?.retryAfterSeconds||5)));
-        await new Promise(r=>setTimeout(r,wait*1000));
-        state=await getJSON(WB+'/lookups/'+encodeURIComponent(lookupId));
+        const cal='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(best.uprn);
+        const html=await getText(cal);
+        const plain=html
+          .replace(/<script[\\s\\S]*?<\\/script>/gi,' ')
+          .replace(/<style[\\s\\S]*?<\\/style>/gi,' ')
+          .replace(/<[^>]+>/g,' ')
+          .replace(/&nbsp;/gi,' ')
+          .replace(/&amp;/gi,'&')
+          .replace(/\\s+/g,' ')
+          .trim();
+
+        const found=[];
+        const re=/Your next ([A-Za-z &]+?) day is (Tomorrow|(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+\\d{1,2}(?:st|nd|rd|th)\\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{4})/gi;
+        let m;
+        while((m=re.exec(plain))){
+          let ds=m[2];
+          if(/^Tomorrow$/i.test(ds)){
+            const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+1);
+            ds=d.toISOString().slice(0,10);
+          }else{
+            const mm=ds.match(/\\b(\\d{1,2})\\w+\\s+(\\w+)\\s+(\\d{4})/);
+            if(mm){
+              const months={january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11};
+              const d=new Date(Number(mm[3]),months[mm[2].toLowerCase()],Number(mm[1]),12);
+              if(!Number.isNaN(d.getTime()))ds=d.toISOString().slice(0,10);
+            }
+          }
+          found.push({date:ds,name:m[1].trim()+' Bin'});
+        }
+        const unique=[...new Map(found.map(x=>[x.name+'|'+x.date,x])).values()]
+          .filter(x=>x.date)
+          .sort((a,b)=>a.date.localeCompare(b.date));
+
+        if(unique.length){
+          return renderSchedule({
+            matched_address:best.v.address||best.v.attributes?.Match_addr||current.label,
+            council:{name:'Glasgow City Council'},
+            collections:unique.map(x=>({name:x.name,dates:[{date:x.date}]}))
+          });
+        }
+        throw Error('Glasgow returned no dated collections for this property.');
+      }catch(glErr){
+        // Fall back to the existing live lookup service. Do not invent a date.
+        const key=crypto.randomUUID();
+        let state=await getJSON(WB+'/lookups',{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Idempotency-Key':key},
+          body:JSON.stringify({postcode:current.postcode,property_id:exact.id})
+        });
+        const lookupId=String(state?.id||state?.lookup_id||'');
+        if(!lookupId)throw Error(glErr.message||state?.detail||'The live collection lookup did not return an ID.');
+
+        for(let i=0;i<18;i++){
+          const status=String(state?.status||'').toLowerCase();
+          if(status==='done')return renderSchedule(state.result||state.schedule||state);
+          if(status==='partial' && state?.result)return renderSchedule(state.result);
+          if(status==='failed')throw Error(state?.detail||state?.problem||glErr.message||'The council lookup failed.');
+          const wait=Math.min(12,Math.max(3,Number(state?.retry_after_seconds||state?.retryAfterSeconds||5)));
+          await new Promise(r=>setTimeout(r,wait*1000));
+          state=await getJSON(WB+'/lookups/'+encodeURIComponent(lookupId));
+        }
+        throw Error(glErr.message||'The council lookup is taking longer than usual. Please try again shortly.');
       }
-      throw Error('The council lookup is taking longer than usual. Please try again shortly.');
     }
 
     const key=crypto.randomUUID();

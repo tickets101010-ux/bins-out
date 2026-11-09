@@ -2,6 +2,7 @@ const KEY='binsout_v2_saved';
 const BINAPI='https://ukbinday.co.uk/api/v2';
 const UPRNAPI='https://api.uprns.io';
 const OSM='https://nominatim.openstreetmap.org/reverse';
+const ALLOWED_LADS=new Set(['S12000049','S12000011']); // Glasgow City, East Renfrewshire
 let current=null,deferred=null;
 
 const $=s=>document.querySelector(s);
@@ -32,10 +33,16 @@ async function get(u){
 }
 
 async function addressFor(u){
+  // uprns.io deliberately returns coordinates/geography, not a postal address.
+  // Use any address-like fields if a future provider supplies them, then reverse-geocode.
+  const direct=u.address||u.display_name||u.label||u.formatted_address||u.property_address||'';
+  if(direct)return String(direct);
   if(u.latitude==null||u.longitude==null)return '';
   try{
     const d=await get(OSM+'?lat='+encodeURIComponent(u.latitude)+'&lon='+encodeURIComponent(u.longitude)+'&format=jsonv2&zoom=18&addressdetails=1&layer=address');
-    return d.display_name||'';
+    const a=d.address||{};
+    const bits=[a.house_number,a.house_name,a.road,a.neighbourhood,a.suburb,a.town,a.city,a.postcode].filter(Boolean);
+    return bits.length?bits.join(', '):(d.display_name||'');
   }catch{return ''}
 }
 
@@ -64,10 +71,11 @@ $('#form').onsubmit=async e=>{
       get(UPRNAPI+'/postcodes/'+encodeURIComponent(p)+'?page=1')
     ]);
 
-    const lad=council.lad_code||council.ladCode;
-    if(!lad) throw Error('No supported council was found for that postcode.');
+    const lad=council.lad_code||council.ladCode||council.council;
+    if(!lad) throw Error('No collecting council was found for that postcode.');
+    if(!ALLOWED_LADS.has(lad)) throw Error('Bins Out currently supports Glasgow City Council and East Renfrewshire Council only.');
 
-    const ids=(page.uprns||page.results||[]).map(x=>typeof x==='string'?x:x.uprn).filter(Boolean);
+    const ids=(page.uprns||page.results||page.addresses||[]).map(x=>typeof x==='string'?x:x.uprn||x.id).filter(Boolean);
     if(!ids.length) throw Error('No properties were found for that postcode.');
 
     msg('Found '+ids.length+' properties. Loading addresses…');
@@ -111,7 +119,8 @@ async function load(c){
   $('#schedule').classList.add('hidden');
   msg('Loading live collection dates…');
   try{
-    const d=await get(BINAPI+'/'+encodeURIComponent(c.lad)+'/view/'+encodeURIComponent(c.uprn)+'?postcode='+encodeURIComponent(c.postcode));
+    const qs='?postcode='+encodeURIComponent(c.postcode)+(c.label?'&address='+encodeURIComponent(c.label):'');
+    const d=await get(BINAPI+'/'+encodeURIComponent(c.lad)+'/view/'+encodeURIComponent(c.uprn)+qs);
     render(c,d);
   }catch(x){
     msg(esc(x.message)+'<br><small>The council may be doing a live scrape. Try the address again in a few seconds.</small>','error');
@@ -119,10 +128,10 @@ async function load(c){
 }
 
 function render(c,d){
-  const raw=d.collections||d.events||d.results||d;
+  const raw=d.dates||d.collections||d.events||d.results||[];
   const a=(Array.isArray(raw)?raw:Object.values(raw||{})).map(x=>{
     const dt=x.date||x.collection_date||x.collectionDate;
-    const ty=x.type||x.bin_type||x.binType||x.service||x.wasteType||x.name||'Collection';
+    const ty=x.type||x.bin_type||x.binType||x.service||x.wasteType||x.name||x.waste||x.description||'Collection';
     return dt?{date:String(dt).slice(0,10),type:String(ty)}:null;
   }).filter(x=>x&&/^\d{4}-\d\d-\d\d$/.test(x.date)).sort((x,y)=>x.date.localeCompare(y.date));
 
@@ -131,7 +140,7 @@ function render(c,d){
   hide();
   $('#schedule').classList.remove('hidden');
   $('#addressTitle').textContent=c.label||('UPRN '+c.uprn);
-  $('#council').textContent=d.council||d.authority||c.lad||'UK collection service';
+  $('#council').textContent=d.council_name||d.council||d.authority||c.lad||'UK collection service';
 
   const u=[];
   a.forEach(x=>{if(!u.some(y=>y.type===x.type))u.push(x)});

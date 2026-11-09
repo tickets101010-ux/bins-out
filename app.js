@@ -14,8 +14,18 @@ function hide(){$('#status').classList.add('hidden')}
 async function getJSON(url,opts={}){
   const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),20000);
   try{
-    const r=await fetch(url,{...opts,headers:{Accept:'application/json',...(opts.headers||{})},signal:ctl.signal});
-    const text=await r.text(); let j={}; try{j=JSON.parse(text)}catch{}
+    let r;
+    try{
+      r=await fetch(url,{...opts,headers:{Accept:'application/json',...(opts.headers||{})},signal:ctl.signal});
+    }catch(e){
+      // GET address discovery is public and browser-readable. If a particular
+      // mobile network/browser blocks the direct request, use a GET-only proxy
+      // as a last resort. POST lookup data never goes through the proxy.
+      if((opts.method||'GET').toUpperCase()!=='GET')throw e;
+      const proxy='https://api.allorigins.win/raw?url='+encodeURIComponent(url);
+      r=await fetch(proxy,{headers:{Accept:'application/json'},signal:ctl.signal});
+    }
+    const text=await r.text();let j={};try{j=JSON.parse(text)}catch{}
     if(!r.ok)throw Error(j.detail||j.error||j.problem||('Live service returned HTTP '+r.status));
     return j;
   }catch(e){
@@ -28,41 +38,67 @@ function addressLabel(x){
   return String(x?.label||x?.address||x?.matched_address||x?.name||'').trim();
 }
 
+function addRows(all,seen,rows){
+  for(const x of Array.isArray(rows)?rows:[]){
+    const id=String(x?.id||x?.uprn||x?.property_id||addressLabel(x));
+    if(id&&!seen.has(id)){seen.add(id);all.push(x)}
+  }
+}
+
 async function findAddresses(postcode){
-  const seen=new Set(), all=[];
-  let next=WB+'/addresses?postcode='+encodeURIComponent(postcode);
-  let pages=0;
+  const seen=new Set(),all=[];
+  const queried=new Set();
   let council=null;
 
-  while(next && pages<50){
-    pages++;
-    const d=await getJSON(next);
+  async function query(q=''){
+    const u=WB+'/addresses?postcode='+encodeURIComponent(postcode)+(q?'&q='+encodeURIComponent(q):'');
+    const d=await getJSON(u);
     if(!council)council=d.council||d.collecting_council||null;
-    const rows=Array.isArray(d.candidates)?d.candidates:[];
-    for(const x of rows){
-      const id=String(x?.id||x?.uprn||x?.property_id||addressLabel(x));
-      if(!seen.has(id)){seen.add(id);all.push(x)}
-    }
+    addRows(all,seen,d.candidates);
+    return d;
+  }
 
-    // Follow API pagination wherever the provider exposes it.
-    // Supports common next-link/cursor shapes without guessing house numbers.
-    let n=d.next||d.next_page||d.nextPage||d.next_url||d.nextUrl||d.links?.next||d.pagination?.next||d.meta?.next;
-    if(typeof n==='object'&&n)n=n.url||n.href||n.link||n.next||null;
-    if(!n){
-      const cursor=d.next_cursor||d.nextCursor||d.pagination?.next_cursor||d.meta?.next_cursor;
-      if(cursor)n=WB+'/addresses?postcode='+encodeURIComponent(postcode)+'&cursor='+encodeURIComponent(cursor);
+  const first=await query();
+
+  // WhenIsBins does not use a "next page" button for address discovery.
+  // For long council lists it exposes road/area choices in input_options;
+  // query each of those choices to obtain the actual properties.
+  const opts=first?.input_options;
+  const choices=Array.isArray(opts?.options)?opts.options:[];
+  for(const o of choices){
+    const value=String(o?.value??o?.id??o?.label??'').trim();
+    if(!value||queried.has(value))continue;
+    queried.add(value);
+    try{await query(value)}catch(e){
+      // One unavailable road must not destroy the postcode lookup.
     }
-    next=n?new URL(String(n),WB).toString():null;
+  }
+
+  // Some responses expose a few candidates but omit the road picker. In that
+  // case use the street portion already supplied by the council labels.
+  if(!choices.length&&all.length){
+    const streets=new Set();
+    for(const x of all){
+      const label=addressLabel(x).replace(/^\s*\d+[A-Z]?\s+/i,'');
+      const parts=label.split(',').map(s=>s.trim()).filter(Boolean);
+      if(parts.length>=2)streets.add(parts[0]);
+    }
+    for(const street of streets){
+      if(queried.has(street))continue;
+      queried.add(street);
+      try{await query(street)}catch(e){}
+    }
   }
 
   if(!all.length)throw Error('No properties were returned for that postcode.');
   all.sort((a,b)=>{
-    const na=parseInt((addressLabel(a).match(/^\\d+/)||['999999'])[0],10);
-    const nb=parseInt((addressLabel(b).match(/^\\d+/)||['999999'])[0],10);
+    const na=parseInt((addressLabel(a).match(/^\d+/)||['999999'])[0],10);
+    const nb=parseInt((addressLabel(b).match(/^\d+/)||['999999'])[0],10);
     return na-nb;
   });
   return {candidates:all,council,required:'property_id',input_options:[]};
 }
+
 function showCandidates(a){
   $('#addresses').innerHTML=a.map((x,i)=>{
     const label=addressLabel(x)||('Property '+(i+1));
@@ -76,25 +112,54 @@ async function selectAddress(x){
   $('#schedule').classList.add('hidden');
   msg('Checking the collection schedule…');
   try{
-    const q='?property_id='+encodeURIComponent(x.id);
-    const cal=await getJSON(WB+'/calendar-url'+q);
-    const url=String(cal?.calendar_url||cal?.url||cal?.data||'').trim();
-    if(url){
-      current.calendar_url=url;
-      renderCalendarLink();
-      return;
+    const key=crypto.randomUUID();
+    const created=await getJSON(WB+'/lookups',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Idempotency-Key':key},
+      body:JSON.stringify({postcode:current.postcode,property_id:x.id})
+    });
+    const id=String(created?.id||created?.lookup_id||'');
+    if(!id)throw Error(created?.detail||'The collection lookup did not return an ID.');
+    let state=created;
+    for(let i=0;i<12;i++){
+      const s=String(state?.status||'').toLowerCase();
+      if(s==='done')return renderSchedule(state.result||state.schedule||state);
+      if(s==='failed')throw Error(state.detail||state.problem||'The council lookup failed.');
+      const wait=Math.max(5,Number(state.retry_after_seconds||state.retryAfterSeconds||5));
+      await new Promise(r=>setTimeout(r,wait*1000));
+      state=await getJSON(WB+'/lookups/'+encodeURIComponent(id));
     }
-  }catch{}
-  msg('Address found: '+esc(current.label||'selected property')+'<br><small>The exact address is confirmed, but a stored collection calendar is not currently available.</small>','error');
+    throw Error('The council lookup is taking longer than usual. Please try again in a moment.');
+  }catch(e){
+    msg(esc(e.message)+'<br><small>No collection date has been invented.</small>','error');
+  }
 }
 
-function renderCalendarLink(){
+function renderSchedule(r){
+  const bins=[];
+  for(const c of (Array.isArray(r?.collections)?r.collections:[])){
+    for(const d of (Array.isArray(c?.dates)?c.dates:[])){
+      const ds=typeof d==='string'?d:d?.date;
+      if(ds)bins.push({date:ds,name:c.name||c.waste_type||'Collection'});
+    }
+  }
+  current.schedule={confirmed:true,bins};
   hide();
   $('#schedule').classList.remove('hidden');
-  $('#addressTitle').textContent=current.label||'Selected property';
-  $('#council').textContent=current.council?.name||'Collection schedule';
-  $('#next').innerHTML='<div class="bin"><b>Live calendar available</b><strong>Open calendar</strong><small>Official collection schedule supplied by the live service</small></div>';
-  $('#upcoming').innerHTML='<h3>Collection calendar</h3><p class="muted">The exact property was matched. Use the live calendar to see the current collection dates.</p><p><a href="'+esc(current.calendar_url)+'" target="_blank" rel="noopener">Open collection calendar</a></p>';
+  $('#addressTitle').textContent=r?.matched_address||current.label||'Selected property';
+  $('#council').textContent=r?.council?.name||current.council?.name||'Collection schedule';
+  const upcoming=bins.filter(b=>new Date(b.date)>=new Date(new Date().toDateString())).sort((a,b)=>a.date.localeCompare(b.date));
+  if(!upcoming.length){
+    $('#next').innerHTML='<div class="bin"><b>No dated collections returned</b><small>The council did not provide a concrete date in this result.</small></div>';
+  }else{
+    const n=upcoming[0];
+    $('#next').innerHTML='<div class="bin"><b>Next collection</b><strong>'+esc(n.name)+'</strong><small>'+esc(date(n.date))+'</small></div>';
+  }
+  $('#upcoming').innerHTML='<h3>Upcoming collections</h3>'+(
+    upcoming.length
+      ? '<div>'+upcoming.slice(0,12).map(b=>'<div class="savedRow"><div><b>'+esc(b.name)+'</b><small>'+esc(date(b.date))+'</small></div></div>').join('')+'</div>'
+      : '<p class="muted">No concrete collection dates were supplied.</p>'
+  );
   $('#save').textContent=saved().some(x=>x.property_id===current.property_id)?'Saved':'Save address';
 }
 

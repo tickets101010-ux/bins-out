@@ -36,32 +36,50 @@ async function findAddresses(postcode){
     throw Error(ri?'The service could not find a property for that postcode.':'No properties were returned for that postcode.');
   }
 
-  // Some postcode responses are deliberately narrow. When the returned
-  // properties reveal a street, ask the service for that street as well;
-  // this exposes the rest of the council's property list without guessing
-  // house numbers.
-  const labels=candidates.map(addressLabel);
-  const streets=[];
-  for(const label of labels){
-    const m=label.match(/^\\d+[A-Z]?\\s+(.+?),\\s+GLASGOW,\\s+G\\d/i);
-    if(m)streets.push(m[1].trim());
-    else{
-      const parts=label.split(',').map(x=>x.trim());
-      if(parts.length>=3 && /drive|road|street|avenue|lane|place|crescent|court|terrace|way|close|gardens|park/i.test(parts[1])) streets.push(parts[1]);
+  // WhenIsBins can return a partial candidate list. If the returned
+  // candidates identify a road, make a second, optional road query.
+  // Failure of that optional query must NEVER break the postcode search.
+  const streets=new Set();
+  for(const x of candidates){
+    const label=addressLabel(x);
+    const parts=label.split(',').map(v=>v.trim());
+    if(parts.length>=3){
+      const road=parts[0].replace(/^\\d+[A-Z]?\\s+/,'').trim();
+      if(road) streets.add(road);
     }
   }
-  const street=[...new Set(streets)][0];
-  if(street && candidates.length<20){
-    try{
-      const q=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(postcode)+'&q='+encodeURIComponent(street));
-      const extra=Array.isArray(q.candidates)?q.candidates:[];
-      const seen=new Set(candidates.map(x=>String(x.id)));
-      for(const x of extra)if(!seen.has(String(x.id))){candidates.push(x);seen.add(String(x.id))}
-    }catch{}
-  }
-  return {candidates,council:base.council||base.collecting_council||null,required:base.required_input||'property_id',input_options:base.input_options||[]};
-}
 
+  let expanded=candidates.slice();
+  for(const street of streets){
+    try{
+      const q=await getJSON(
+        WB+'/addresses?postcode='+encodeURIComponent(postcode)+'&q='+encodeURIComponent(street)
+      );
+      const extra=Array.isArray(q.candidates)?q.candidates:[];
+      const seen=new Set(expanded.map(x=>String(x.id)));
+      for(const x of extra){
+        const id=String(x.id);
+        if(id && !seen.has(id)){expanded.push(x);seen.add(id)}
+      }
+    }catch(_){
+      // Base postcode result remains valid; do not turn an optional
+      // expansion failure into "Failed to fetch".
+    }
+  }
+
+  expanded.sort((a,b)=>{
+    const na=parseInt((addressLabel(a).match(/^\\d+/)||['999999'])[0],10);
+    const nb=parseInt((addressLabel(b).match(/^\\d+/)||['999999'])[0],10);
+    return na-nb;
+  });
+
+  return {
+    candidates:expanded,
+    council:base.council||base.collecting_council||null,
+    required:base.required_input||'property_id',
+    input_options:base.input_options||[]
+  };
+}
 function showCandidates(a){
   $('#addresses').innerHTML=a.map((x,i)=>{
     const label=addressLabel(x)||('Property '+(i+1));

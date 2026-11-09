@@ -175,31 +175,45 @@ async function selectAddress(x){
 
   try{
     if((current.council?.id||current.council?.gss)==='S12000049'){
-      // Use WhenIsBins only for the selected property's opaque property_id.
-      // The address list remains Glasgow's full official gazetteer list.
-      const d=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(current.postcode)+'&q='+encodeURIComponent(current.label));
-      const wanted=normAddress(current.label);
+      // The Glasgow list comes from Glasgow's gazetteer, so its locator ID
+      // is not a WhenIsBins property_id. Resolve the selected house number
+      // back through WhenIsBins, which gives us the opaque property_id.
+      const house=(current.label.match(/^\\s*(\\d+[A-Z]?)\\b/i)||[])[1]||'';
+      if(!house)throw Error('The selected Glasgow address has no house number.');
+
+      const d=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(current.postcode)+'&q='+encodeURIComponent(house));
       const candidates=Array.isArray(d?.candidates)?d.candidates:[];
+      const wanted=normAddress(current.label);
       const exact=candidates.find(v=>normAddress(addressLabel(v))===wanted)||
-                  candidates.find(v=>normAddress(addressLabel(v)).includes(wanted)||
-                                    wanted.includes(normAddress(addressLabel(v))));
-      if(!exact?.id)throw Error('The live collection service could not identify that exact property.');
+                  candidates.find(v=>{
+                    const n=normAddress(addressLabel(v));
+                    return n.startsWith(normAddress(house)+' ')||n.startsWith(normAddress(house)+'A ')||n.startsWith(normAddress(house)+'B ');
+                  });
+      if(!exact?.id)throw Error('WhenIsBins could not identify that exact Glasgow property.');
 
-      const url=await fetchText(WB+'/calendar-url?property_id='+encodeURIComponent(exact.id));
-      const calendarUrl=String(url||'').trim();
-      if(!/^https:\/\/whenisbins\.com\//i.test(calendarUrl))throw Error('No live calendar is currently available for that property.');
+      // Read the stable address-free schedule. This is the live schedule
+      // held by WhenIsBins; after refresh_due_at the service queues a council
+      // refresh while returning the current verified schedule.
+      const token=String(exact.id).replace(/^p:/,'');
+      const r=await getJSON(WB+'/schedules/'+encodeURIComponent(token));
+      if(r?.problem||r?.error)throw Error(r.detail||r.problem||'No verified collection schedule is available for this property.');
+      const result=r?.result||r;
+      const bins=[];
+      for(const col of (Array.isArray(result?.collections)?result.collections:[])){
+        for(const d of (Array.isArray(col?.dates)?col.dates:[])){
+          const ds=typeof d==='string'?d:d?.date;
+          if(ds)bins.push({date:ds,name:col.name||col.waste_type||'Collection'});
+        }
+      }
+      if(!bins.length)throw Error('The live service has no dated collections for this property.');
 
-      const ics=await fetchText(calendarUrl);
-      const bins=parseICS(ics);
-      if(!bins.length)throw Error('The live calendar returned no dated collections.');
       current.property_id=exact.id;
-      current.calendar_url=calendarUrl;
-      current.schedule={confirmed:true,bins};
+      current.schedule={confirmed:true,bins,retrieved_at:result?.retrieved_at,refresh_due_at:result?.refresh_due_at};
       hide();
       $('#schedule').classList.remove('hidden');
-      $('#addressTitle').textContent=addressLabel(exact)||current.label;
-      $('#council').textContent='Glasgow City Council · live calendar';
-      const upcoming=bins.filter(v=>v.date>=new Date().toISOString().slice(0,10));
+      $('#addressTitle').textContent=result?.matched_address||addressLabel(exact)||current.label;
+      $('#council').textContent=(result?.council?.name||'Glasgow City Council')+' · verified schedule';
+      const upcoming=bins.filter(v=>v.date>=new Date().toISOString().slice(0,10)).sort((a,b)=>a.date.localeCompare(b.date));
       const n=upcoming[0];
       $('#next').innerHTML='<div class="bin"><b>Next collection</b><strong>'+esc(n?.name||'Collection')+'</strong><small>'+esc(date(n?.date||bins[0].date))+'</small></div>';
       $('#upcoming').innerHTML='<h3>Upcoming collections</h3>'+upcoming.slice(0,20).map(v=>'<div class="savedRow"><div><b>'+esc(v.name)+'</b><small>'+esc(date(v.date))+'</small></div></div>').join('');

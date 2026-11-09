@@ -136,47 +136,77 @@ function showCandidates(a){
   document.querySelectorAll('.address').forEach(b=>b.onclick=()=>selectAddress(a[+b.dataset.i]));
 }
 
+async function fetchText(url){
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),20000);
+  try{
+    const r=await fetch(url,{headers:{Accept:'text/plain,text/calendar,application/json'},signal:ctl.signal});
+    if(!r.ok)throw Error('Live service returned HTTP '+r.status);
+    return await r.text();
+  }catch(e){
+    if(e.name==='AbortError')throw Error('The live service took too long to respond.');
+    throw e;
+  }finally{clearTimeout(timer)}
+}
+
+function parseICS(text){
+  const unfolded=String(text||'').replace(/\r?\n[ \t]/g,'');
+  const lines=unfolded.split(/\r?\n/),out=[];
+  let ev=null;
+  for(const line of lines){
+    if(line==='BEGIN:VEVENT'){ev={};continue}
+    if(line==='END:VEVENT'){
+      if(ev?.date)out.push({date:ev.date,name:ev.name||'Collection'});
+      ev=null;continue
+    }
+    if(!ev)continue;
+    if(line.startsWith('DTSTART')){
+      const v=line.split(':').slice(1).join(':').trim();
+      const m=v.match(/^(\\d{4})(\\d{2})(\\d{2})/);
+      if(m)ev.date=m[1]+'-'+m[2]+'-'+m[3];
+    }else if(line.startsWith('SUMMARY:'))ev.name=line.slice(8).trim();
+  }
+  return out.sort((a,b)=>a.date.localeCompare(b.date));
+}
+
 async function selectAddress(x){
   current={postcode:pc($('#postcode').value),property_id:x.id,label:addressLabel(x),council:x.council||null};
   $('#schedule').classList.add('hidden');
-  msg('Checking the collection schedule…');
+  msg('Checking the live collection schedule…');
 
   try{
-    // Glasgow uses its own public UPRN locator and collection calendar.
-    // This avoids the browser-restricted POST /lookups route entirely.
     if((current.council?.id||current.council?.gss)==='S12000049'){
-      const q='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(current.label+', '+current.postcode)+'&f=json&maxLocations=10&outFields=*';
-      const gd=JSON.parse(await getText(q));
-      const cs=Array.isArray(gd?.candidates)?gd.candidates:[];
+      // Use WhenIsBins only for the selected property's opaque property_id.
+      // The address list remains Glasgow's full official gazetteer list.
+      const d=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(current.postcode)+'&q='+encodeURIComponent(current.label));
       const wanted=normAddress(current.label);
-      const ranked=cs.map(c=>{
-        const addr=String(c?.address||c?.attributes?.Match_addr||'').trim();
-        const uprn=String(c?.attributes?.UPRN||c?.attributes?.uprn||c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||'').trim();
-        const n=normAddress(addr);
-        return {addr,uprn,score:(n===wanted?3:(n.includes(wanted)?2:(wanted.includes(n)?1:0)))};
-      }).filter(c=>/^\\d{1,12}$/.test(c.uprn)).sort((a,b)=>b.score-a.score);
-      if(!ranked.length||ranked[0].score<2)throw Error('Glasgow could not match that exact property to a UPRN.');
-      const uprn=ranked[0].uprn;
-      const calUrl='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(uprn);
-      const html=await getText(calUrl);
-      const plain=html.replace(/<[^>]+>/g,' ').replace(/&nbsp;/gi,' ').replace(/&amp;/g,'&').replace(/\\s+/g,' ').trim();
-      const re=/Your next ([A-Za-z ]+?) day is ([A-Za-z]+ \\d{1,2}(?:st|nd|rd|th)? [A-Za-z]+ \\d{4}|Tomorrow|Today)\\./gi;
-      const bins=[];let m;
-      while((m=re.exec(plain)))bins.push({name:m[1].trim(),dateText:m[2].trim()});
-      if(!bins.length)throw Error('Glasgow returned the property calendar but no collection dates were readable.');
-      current.uprn=uprn;
+      const candidates=Array.isArray(d?.candidates)?d.candidates:[];
+      const exact=candidates.find(v=>normAddress(addressLabel(v))===wanted)||
+                  candidates.find(v=>normAddress(addressLabel(v)).includes(wanted)||
+                                    wanted.includes(normAddress(addressLabel(v))));
+      if(!exact?.id)throw Error('The live collection service could not identify that exact property.');
+
+      const url=await fetchText(WB+'/calendar-url?property_id='+encodeURIComponent(exact.id));
+      const calendarUrl=String(url||'').trim();
+      if(!/^https:\/\/whenisbins\.com\//i.test(calendarUrl))throw Error('No live calendar is currently available for that property.');
+
+      const ics=await fetchText(calendarUrl);
+      const bins=parseICS(ics);
+      if(!bins.length)throw Error('The live calendar returned no dated collections.');
+      current.property_id=exact.id;
+      current.calendar_url=calendarUrl;
       current.schedule={confirmed:true,bins};
       hide();
       $('#schedule').classList.remove('hidden');
-      $('#addressTitle').textContent=ranked[0].addr||current.label;
-      $('#council').textContent='Glasgow City Council';
-      $('#next').innerHTML='<div class="bin"><b>Next collection</b><strong>'+esc(bins[0].name)+'</strong><small>'+esc(bins[0].dateText)+'</small></div>';
-      $('#upcoming').innerHTML='<h3>Upcoming collections</h3>'+bins.map(v=>'<div class="savedRow"><div><b>'+esc(v.name)+'</b><small>'+esc(v.dateText)+'</small></div></div>').join('');
+      $('#addressTitle').textContent=addressLabel(exact)||current.label;
+      $('#council').textContent='Glasgow City Council · live calendar';
+      const upcoming=bins.filter(v=>v.date>=new Date().toISOString().slice(0,10));
+      const n=upcoming[0];
+      $('#next').innerHTML='<div class="bin"><b>Next collection</b><strong>'+esc(n?.name||'Collection')+'</strong><small>'+esc(date(n?.date||bins[0].date))+'</small></div>';
+      $('#upcoming').innerHTML='<h3>Upcoming collections</h3>'+upcoming.slice(0,20).map(v=>'<div class="savedRow"><div><b>'+esc(v.name)+'</b><small>'+esc(date(v.date))+'</small></div></div>').join('');
       $('#save').textContent=saved().some(v=>v.property_id===current.property_id)?'Saved':'Save address';
       return;
     }
 
-    // Other supported councils use the documented asynchronous lookup journey.
     const key=crypto.randomUUID();
     const created=await getJSON(WB+'/lookups',{
       method:'POST',

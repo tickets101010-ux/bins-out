@@ -190,89 +190,71 @@ async function selectAddress(x){
 
   try{
     if((current.council?.id||current.council?.gss)==='S12000049'){
-      const house=(current.label.match(/^\s*(\d+[A-Z]?)\b/i)||[])[1]||'';
+      // Glasgow schedules come from the council's live calendar keyed by UPRN.
+      // Do not depend on the third-party property lookup for Glasgow.
+      const wanted=normAddress(current.label);
+      const house=(wanted.match(/^\d+/)||[''])[0];
       if(!house)throw Error('The selected Glasgow address has no house number.');
 
-      // The Glasgow gazetteer supplies the complete address list. Resolve
-      // the selected house through WhenIsBins to obtain its opaque property_id.
-      const d=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(current.postcode)+'&q='+encodeURIComponent(house));
-      const candidates=Array.isArray(d?.candidates)?d.candidates:[];
-      const wanted=normAddress(current.label);
-      const exact=candidates.find(v=>normAddress(addressLabel(v))===wanted)||
-                  candidates.find(v=>{
-                    const n=normAddress(addressLabel(v));
-                    return n.startsWith(normAddress(house)+' ');
-                  });
-      if(!exact?.id)throw Error('WhenIsBins could not identify that exact Glasgow property.');
+      const g='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(current.label+', '+current.postcode)+'&f=json&maxLocations=10&outFields=*';
+      const gd=JSON.parse(await getText(g));
+      const cs=Array.isArray(gd?.candidates)?gd.candidates:[];
+      const ranked=cs.map(v=>{
+        const a=normAddress(v.address||v.attributes?.Match_addr||'');
+        const uprn=String(v.attributes?.UPRN||v.attributes?.uprn||v.attributes?.LOCATOR_ID||v.attributes?.Locator_ID||v.attributes?.LOCATOR_DESCRIPTION||'').trim();
+        let score=uprn?1:0;
+        if(a===wanted)score+=5;
+        else if(a.includes(wanted))score+=2;
+        if(house&&a.startsWith(house+' '))score+=2;
+        return {v,a,uprn,score};
+      }).filter(v=>v.uprn).sort((a,b)=>b.score-a.score);
 
-      // Glasgow City Council publishes the live calendar directly from the
-      // property's UPRN. Resolve the selected address against the council
-      // gazetteer, then read the official calendar. This avoids relying on a
-      // stale/abbreviated third-party property lookup.
-      try{
-        const g='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(current.label+', '+current.postcode)+'&f=json&maxLocations=10&outFields=*';
-        const gd=JSON.parse(await getText(g));
-        const wanted=normAddress(current.label);
-        const house=(wanted.match(/^\d+/)||[''])[0];
-        const cs=Array.isArray(gd?.candidates)?gd.candidates:[];
-        const ranked=cs.map(v=>{
-          const a=normAddress(v.address||v.attributes?.Match_addr||'');
-          const uprn=String(v.attributes?.UPRN||v.attributes?.uprn||v.attributes?.LOCATOR_ID||v.attributes?.Locator_ID||v.attributes?.LOCATOR_DESCRIPTION||'').trim();
-          let score=0;
-          if(uprn)score+=1;
-          if(house&&a.startsWith(house+' '))score+=2;
-          if(a===wanted)score+=5;
-          else if(a.includes(wanted))score+=2;
-          return {v,a,uprn,score};
-        }).filter(v=>v.uprn).sort((a,b)=>b.score-a.score);
+      const best=ranked[0];
+      if(!best || best.score<3)throw Error('Glasgow could not match that exact property to a UPRN.');
 
-        const best=ranked[0];
-        if(!best || best.score<3)throw Error('Glasgow could not match that exact property to a UPRN.');
+      const cal='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(best.uprn);
+      const html=await getText(cal);
+      const plain=html
+        .replace(/<script[\s\S]*?<\/script>/gi,' ')
+        .replace(/<style[\s\S]*?<\/style>/gi,' ')
+        .replace(/<[^>]+>/g,' ')
+        .replace(/&nbsp;/gi,' ')
+        .replace(/&amp;/gi,'&')
+        .replace(/\s+/g,' ')
+        .trim();
 
-        const cal='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(best.uprn);
-        const html=await getText(cal);
-        const plain=html
-          .replace(/<script[\\s\\S]*?<\\/script>/gi,' ')
-          .replace(/<style[\\s\\S]*?<\\/style>/gi,' ')
-          .replace(/<[^>]+>/g,' ')
-          .replace(/&nbsp;/gi,' ')
-          .replace(/&amp;/gi,'&')
-          .replace(/\\s+/g,' ')
-          .trim();
-
-        const found=[];
-        const re=/Your next ([A-Za-z &]+?) day is (Tomorrow|(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+\\d{1,2}(?:st|nd|rd|th)\\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{4})/gi;
-        let m;
-        while((m=re.exec(plain))){
-          let ds=m[2];
-          if(/^Tomorrow$/i.test(ds)){
-            const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+1);
-            ds=d.toISOString().slice(0,10);
-          }else{
-            const mm=ds.match(/\\b(\\d{1,2})\\w+\\s+(\\w+)\\s+(\\d{4})/);
-            if(mm){
-              const months={january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11};
-              const d=new Date(Number(mm[3]),months[mm[2].toLowerCase()],Number(mm[1]),12);
-              if(!Number.isNaN(d.getTime()))ds=d.toISOString().slice(0,10);
-            }
+      const found=[];
+      const re=/Your next ([A-Za-z &]+?) day is (Tomorrow|(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+\d{1,2}(?:st|nd|rd|th)\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})/gi;
+      let m;
+      while((m=re.exec(plain))){
+        let ds=m[2];
+        if(/^Tomorrow$/i.test(ds)){
+          const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+1);
+          ds=d.toISOString().slice(0,10);
+        }else{
+          const mm=ds.match(/\b(\d{1,2})\w+\s+(\w+)\s+(\d{4})/);
+          if(mm){
+            const months={january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11};
+            const d=new Date(Number(mm[3]),months[mm[2].toLowerCase()],Number(mm[1]),12);
+            if(!Number.isNaN(d.getTime()))ds=d.toISOString().slice(0,10);
           }
-          found.push({date:ds,name:m[1].trim()+' Bin'});
         }
-        const unique=[...new Map(found.map(x=>[x.name+'|'+x.date,x])).values()]
-          .filter(x=>x.date)
-          .sort((a,b)=>a.date.localeCompare(b.date));
+        found.push({date:ds,name:m[1].trim().replace(/\s+/g,' ')});
+      }
 
-        if(unique.length){
-          return renderSchedule({
-            matched_address:best.v.address||best.v.attributes?.Match_addr||current.label,
-            council:{name:'Glasgow City Council'},
-            collections:unique.map(x=>({name:x.name,dates:[{date:x.date}]}))
-          });
-        }
-        throw Error('Glasgow returned no dated collections for this property.');
-      }catch(glErr){
-        // Fall back to the existing live lookup service. Do not invent a date.
-        const key=crypto.randomUUID();
+      const unique=[...new Map(found.map(x=>[x.name+'|'+x.date,x])).values()]
+        .filter(x=>x.date)
+        .sort((a,b)=>a.date.localeCompare(b.date));
+
+      if(!unique.length)throw Error('Glasgow returned no dated collections for this property.');
+
+      return renderSchedule({
+        matched_address:best.v.address||best.v.attributes?.Match_addr||current.label,
+        council:{name:'Glasgow City Council'},
+        collections:unique.map(x=>({name:x.name,dates:[{date:x.date}]}))
+      });
+    }
+    const key=crypto.randomUUID();
         let state=await getJSON(WB+'/lookups',{
           method:'POST',
           headers:{'Content-Type':'application/json','Idempotency-Key':key},

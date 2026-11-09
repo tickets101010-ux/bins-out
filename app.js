@@ -73,7 +73,7 @@ async function glasgowAddresses(postcode){
     const id=String(c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||c?.attributes?.LOCATOR_DESCRIPTION||'').trim();
     if(!label||!id||seen.has(label))continue;
     seen.add(label);
-    out.push({id,label,postcode,council:{id:'S12000049',name:'Glasgow City Council'}});
+    out.push({id,label,postcode,x:c?.attributes?.X??c?.x,y:c?.attributes?.Y??c?.y,council:{id:'S12000049',name:'Glasgow City Council'}});
   }
   out.sort((a,b)=>{
     const na=parseInt((a.label.match(/^\d+/)||['999999'])[0],10);
@@ -218,6 +218,61 @@ function parseGlasgowCalendar(html){
     .sort((a,b)=>a.date.localeCompare(b.date));
 }
 
+function bngToWgs84(E,N){
+  E=Number(E);N=Number(N);
+  if(!Number.isFinite(E)||!Number.isFinite(N))return null;
+  const a=6377563.396,b=6356256.909,F0=.9996012717,lat0=49*Math.PI/180,lon0=-2*Math.PI/180,N0=-100000,E0=400000;
+  const e2=1-(b*b)/(a*a),n=(a-b)/(a+b);
+  let lat=lat0,M=0;
+  do{
+    lat=(N-N0-M)/(a*F0)+lat;
+    M=b*F0*((1+n+1.25*n*n+1.25*n*n*n)*(lat-lat0)
+      -(3*n+3*n*n+2.625*n*n*n)*Math.sin(lat-lat0)*Math.cos(lat+lat0)
+      +(1.875*n*n+1.875*n*n*n)*Math.sin(2*(lat-lat0))*Math.cos(2*(lat+lat0))
+      -(35/24)*n*n*n*Math.sin(3*(lat-lat0))*Math.cos(3*(lat+lat0)));
+  }while(Math.abs(N-N0-M)>=.00001);
+  const sin=Math.sin(lat),cos=Math.cos(lat),tan=Math.tan(lat);
+  const nu=a*F0/Math.sqrt(1-e2*sin*sin),rho=a*F0*(1-e2)/Math.pow(1-e2*sin*sin,1.5),eta2=nu/rho-1;
+  const dE=E-E0;
+  const VII=tan/(2*rho*nu);
+  const VIII=tan/(24*rho*Math.pow(nu,3))*(5+3*tan*tan+eta2-9*tan*tan*eta2);
+  const IX=tan/(720*rho*Math.pow(nu,5))*(61+90*tan*tan+45*Math.pow(tan,4));
+  const X=1/(cos*nu);
+  const XI=1/(6*cos*Math.pow(nu,3))*(nu/rho+2*tan*tan);
+  const XII=1/(120*cos*Math.pow(nu,5))*(5+28*tan*tan+24*Math.pow(tan,4));
+  const latOS=lat-VII*dE*dE+VIII*Math.pow(dE,4)-IX*Math.pow(dE,6);
+  const lonOS=lon0+X*dE-XI*Math.pow(dE,3)+XII*Math.pow(dE,5);
+  const H=0;
+  const sinLat=Math.sin(latOS),cosLat=Math.cos(latOS);
+  const airyA=a,airyB=b;
+  let x= (airyA/Math.sqrt(1-e2*sinLat*sinLat)+H)*cosLat*Math.cos(lonOS);
+  let y= (airyA/Math.sqrt(1-e2*sinLat*sinLat)+H)*cosLat*Math.sin(lonOS);
+  let z= ((airyA*(1-e2))/Math.pow(1-e2*sinLat*sinLat,1.5)+H)*sinLat;
+  const tx=446.448,ty=-125.157,tz=542.06,rx=.1502*Math.PI/(180*3600),ry=.2470*Math.PI/(180*3600),rz=.8421*Math.PI/(180*3600),s=-20.4894e-6;
+  const x2=tx+(1+s)*x-rz*y+ry*z,y2=ty+rz*x+(1+s)*y-rx*z,z2=tz-ry*x+rx*y+(1+s)*z;
+  const wgsA=6378137,wgsB=6356752.3141,wgsE2=1-(wgsB*wgsB)/(wgsA*wgsA);
+  const p=Math.sqrt(x2*x2+y2*y2),lon=Math.atan2(y2,x2);
+  let latW=Math.atan2(z2,p*(1-wgsE2));
+  for(let i=0;i<10;i++){const sinW=Math.sin(latW);latW=Math.atan2(z2+wgsE2*wgsA/Math.sqrt(1-wgsE2*sinW*sinW)*sinW,p)}
+  return {lat:latW*180/Math.PI,lon:lon*180/Math.PI};
+}
+
+async function resolveGlasgowUprn(x){
+  const ll=bngToWgs84(x.x,x.y);
+  if(!ll)throw Error('The selected Glasgow property has no map reference.');
+  const q='https://api.uprns.io/nearest?longitude='+encodeURIComponent(ll.lon)+'&latitude='+encodeURIComponent(ll.lat)+'&radius=40&limit=8';
+  const d=await getJSON(q);
+  const rows=Array.isArray(d)?d:[];
+  if(!rows.length)throw Error('No UPRN was found for the selected Glasgow property.');
+  const wanted=normAddress(x.label);
+  const house=(wanted.match(/^\\d+/)||[''])[0];
+  const ranked=rows.map(r=>{
+    const score=(String(r?.postcode||'').replace(/\\s+/g,'').toUpperCase()===String(x.postcode||'').replace(/\\s+/g,'').toUpperCase()?5:0);
+    return {...r,_score:score,_distance:Number(r?.distance??999999)};
+  }).sort((a,b)=>b._score-a._score||a._distance-b._distance);
+  return String(ranked[0].uprn);
+}
+
 async function selectAddress(x){
   current={postcode:pc($('#postcode').value),property_id:x.id,label:addressLabel(x),council:x.council||null};
   $('#schedule').classList.add('hidden');
@@ -225,59 +280,19 @@ async function selectAddress(x){
 
   try{
     if((current.council?.id||current.council?.gss)==='S12000049'){
-      // Glasgow's own calendar is the source of truth. The address list gives
-      // us a Glasgow locator ID, and the UPRN locator can return more than one
-      // candidate. Try the exact-match candidates until the council calendar
-      // actually returns dated collections.
-      const wanted=normAddress(current.label);
-      const house=(wanted.match(/^\d+/)||[''])[0];
-      if(!house)throw Error('The selected Glasgow address has no house number.');
-
-      const candidates=[];
-      const addCandidate=(id,address,score=0)=>{
-        const v=String(id||'').trim();
-        if(!v||candidates.some(x=>x.id===v))return;
-        candidates.push({id:v,address:String(address||''),score});
-      };
-
-      // The Glasgow address gazetteer ID is also useful as a direct candidate.
-      addCandidate(x.id,current.label,6);
-
-      const g='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(current.label+', '+current.postcode)+'&f=json&maxLocations=20&outFields=*';
-      try{
-        const gd=JSON.parse(await getText(g));
-        for(const v of (Array.isArray(gd?.candidates)?gd.candidates:[])){
-          const a=normAddress(v.address||v.attributes?.Match_addr||'');
-          const id=String(v.attributes?.UPRN||v.attributes?.uprn||v.attributes?.LOCATOR_ID||v.attributes?.Locator_ID||'').trim();
-          if(!id)continue;
-          let score=1;
-          if(a===wanted)score+=10;
-          else if(a.includes(wanted)||wanted.includes(a))score+=4;
-          if(house&&a.startsWith(house+' '))score+=4;
-          addCandidate(id,a,score);
-        }
-      }catch(_){}
-
-      candidates.sort((a,b)=>b.score-a.score);
-
-      let lastError=null;
-      for(const candidate of candidates.slice(0,8)){
-        try{
-          const cal='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(candidate.id);
-          const html=await getText(cal);
-          const found=parseGlasgowCalendar(html);
-          if(found.length){
-            return renderSchedule({
-              matched_address:current.label,
-              council:{name:'Glasgow City Council'},
-              collections:found.map(x=>({name:x.name,dates:[{date:x.date}]}))
-            });
-          }
-          lastError=Error('Glasgow returned no dated collections for this property.');
-        }catch(e){lastError=e}
+      const uprn=await resolveGlasgowUprn(x);
+      current.property_id=uprn;
+      const cal='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(uprn);
+      const html=await getText(cal);
+      const found=parseGlasgowCalendar(html);
+      if(found.length){
+        return renderSchedule({
+          matched_address:current.label,
+          council:{name:'Glasgow City Council'},
+          collections:found.map(v=>({name:v.name,dates:[{date:v.date}]}))
+        });
       }
-
-      throw lastError||Error('Glasgow could not find a collection calendar for this property.');
+      throw Error('Glasgow returned no dated collections for this exact property.');
     }
     const key=crypto.randomUUID();
     const created=await getJSON(WB+'/lookups',{

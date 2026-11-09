@@ -75,7 +75,8 @@ $('#form').onsubmit=async e=>{
     if(!lad) throw Error('No collecting council was found for that postcode.');
     if(!ALLOWED_LADS.has(lad)) throw Error('Bins Out currently supports Glasgow City Council and East Renfrewshire Council only.');
 
-    const ids=(page.uprns||page.results||page.addresses||[]).map(x=>typeof x==='string'?x:x.uprn||x.id).filter(Boolean);
+    const providerAddresses=Array.isArray(council.addresses)?council.addresses.filter(x=>x&&x.uprn):[];
+    const ids=(providerAddresses.length?providerAddresses:(page.uprns||page.results||page.addresses||[])).map(x=>typeof x==='string'?x:x.uprn||x.id).filter(Boolean);
     if(!ids.length) throw Error('No properties were found for that postcode.');
 
     msg('Found '+ids.length+' properties. Loading addresses…');
@@ -85,10 +86,11 @@ $('#form').onsubmit=async e=>{
     for(let i=0;i<ids.length;i++){
       try{
         const u=await get(UPRNAPI+'/uprns/'+encodeURIComponent(ids[i]));
+        const provider=providerAddresses.find(x=>String(x.uprn)===String(ids[i]));
         rows.push({
           uprn:String(ids[i]),
           lat:u.latitude,lon:u.longitude,
-          label:await addressFor(u),
+          label:String(provider?.address||provider?.label||provider?.name||'')||await addressFor(u),
           postcode:p,lad
         });
         showAddresses(rows,false);

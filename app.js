@@ -129,11 +129,26 @@ async function findAddresses(postcode){
   return {candidates:all,council,required:'property_id',input_options:[]};
 }
 function showCandidates(a){
-  $('#addresses').innerHTML=a.map((x,i)=>{
+  const rows=[...a].sort((x,y)=>{
+    const ax=addressLabel(x),ay=addressLabel(y);
+    const mx=ax.match(/\\b(\\d+)\\s*([A-Z]?)\\b/i),my=ay.match(/\\b(\\d+)\\s*([A-Z]?)\\b/i);
+    const nx=mx?Number(mx[1]):999999,ny=my?Number(my[1]):999999;
+    return nx-ny||(mx?.[2]||'').localeCompare(my?.[2]||'')||ax.localeCompare(ay);
+  });
+  $('#addresses').innerHTML=rows.map((x,i)=>{
     const label=addressLabel(x)||('Property '+(i+1));
-    return '<button class="address" data-i="'+i+'"><span>'+esc(label)+'</span><small>Exact property</small></button>';
+    return '<button type="button" class="address" data-i="'+i+'" aria-pressed="false"><span>'+esc(label)+'</span><small>Tap to select</small></button>';
   }).join('');
-  document.querySelectorAll('.address').forEach(b=>b.onclick=()=>selectAddress(a[+b.dataset.i]));
+  document.querySelectorAll('.address').forEach(b=>b.onclick=async()=>{
+    document.querySelectorAll('.address').forEach(v=>{
+      v.classList.remove('selected');v.setAttribute('aria-pressed','false');
+      const s=v.querySelector('small');if(s)s.textContent='Tap to select';
+    });
+    b.classList.add('selected');b.setAttribute('aria-pressed','true');
+    const s=b.querySelector('small');if(s)s.textContent='✓ Selected — checking live schedule…';
+    b.scrollIntoView({block:'nearest',behavior:'smooth'});
+    await selectAddress(rows[+b.dataset.i]);
+  });
 }
 
 async function fetchText(url){
@@ -175,50 +190,43 @@ async function selectAddress(x){
 
   try{
     if((current.council?.id||current.council?.gss)==='S12000049'){
-      // The Glasgow list comes from Glasgow's gazetteer, so its locator ID
-      // is not a WhenIsBins property_id. Resolve the selected house number
-      // back through WhenIsBins, which gives us the opaque property_id.
       const house=(current.label.match(/^\\s*(\\d+[A-Z]?)\\b/i)||[])[1]||'';
       if(!house)throw Error('The selected Glasgow address has no house number.');
 
+      // The Glasgow gazetteer supplies the complete address list. Resolve
+      // the selected house through WhenIsBins to obtain its opaque property_id.
       const d=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(current.postcode)+'&q='+encodeURIComponent(house));
       const candidates=Array.isArray(d?.candidates)?d.candidates:[];
       const wanted=normAddress(current.label);
       const exact=candidates.find(v=>normAddress(addressLabel(v))===wanted)||
                   candidates.find(v=>{
                     const n=normAddress(addressLabel(v));
-                    return n.startsWith(normAddress(house)+' ')||n.startsWith(normAddress(house)+'A ')||n.startsWith(normAddress(house)+'B ');
+                    return n.startsWith(normAddress(house)+' ');
                   });
       if(!exact?.id)throw Error('WhenIsBins could not identify that exact Glasgow property.');
 
-      // Read the stable address-free schedule. This is the live schedule
-      // held by WhenIsBins; after refresh_due_at the service queues a council
-      // refresh while returning the current verified schedule.
-      const token=String(exact.id).replace(/^p:/,'');
-      const r=await getJSON(WB+'/schedules/'+encodeURIComponent(token));
-      if(r?.problem||r?.error)throw Error(r.detail||r.problem||'No verified collection schedule is available for this property.');
-      const result=r?.result||r;
-      const bins=[];
-      for(const col of (Array.isArray(result?.collections)?result.collections:[])){
-        for(const d of (Array.isArray(col?.dates)?col.dates:[])){
-          const ds=typeof d==='string'?d:d?.date;
-          if(ds)bins.push({date:ds,name:col.name||col.waste_type||'Collection'});
-        }
-      }
-      if(!bins.length)throw Error('The live service has no dated collections for this property.');
+      // A schedule 404 means this property has not been checked yet. Create
+      // the official lookup, then wait for the council result.
+      const key=crypto.randomUUID();
+      let state=await getJSON(WB+'/lookups',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Idempotency-Key':key},
+        body:JSON.stringify({postcode:current.postcode,property_id:exact.id})
+      });
+      const lookupId=String(state?.id||state?.lookup_id||'');
+      if(!lookupId)throw Error(state?.detail||'The live collection lookup did not return an ID.');
 
-      current.property_id=exact.id;
-      current.schedule={confirmed:true,bins,retrieved_at:result?.retrieved_at,refresh_due_at:result?.refresh_due_at};
-      hide();
-      $('#schedule').classList.remove('hidden');
-      $('#addressTitle').textContent=result?.matched_address||addressLabel(exact)||current.label;
-      $('#council').textContent=(result?.council?.name||'Glasgow City Council')+' · verified schedule';
-      const upcoming=bins.filter(v=>v.date>=new Date().toISOString().slice(0,10)).sort((a,b)=>a.date.localeCompare(b.date));
-      const n=upcoming[0];
-      $('#next').innerHTML='<div class="bin"><b>Next collection</b><strong>'+esc(n?.name||'Collection')+'</strong><small>'+esc(date(n?.date||bins[0].date))+'</small></div>';
-      $('#upcoming').innerHTML='<h3>Upcoming collections</h3>'+upcoming.slice(0,20).map(v=>'<div class="savedRow"><div><b>'+esc(v.name)+'</b><small>'+esc(date(v.date))+'</small></div></div>').join('');
-      $('#save').textContent=saved().some(v=>v.property_id===current.property_id)?'Saved':'Save address';
-      return;
+      for(let i=0;i<18;i++){
+        const status=String(state?.status||'').toLowerCase();
+        if(status==='done')return renderSchedule(state.result||state.schedule||state);
+        if(status==='partial' && state?.result)return renderSchedule(state.result);
+        if(status==='failed')throw Error(state?.detail||state?.problem||'The council lookup failed.');
+
+        const wait=Math.min(12,Math.max(3,Number(state?.retry_after_seconds||state?.retryAfterSeconds||5)));
+        await new Promise(r=>setTimeout(r,wait*1000));
+        state=await getJSON(WB+'/lookups/'+encodeURIComponent(lookupId));
+      }
+      throw Error('The council lookup is taking longer than usual. Please try again shortly.');
     }
 
     const key=crypto.randomUUID();
@@ -232,6 +240,7 @@ async function selectAddress(x){
     for(let i=0;i<12;i++){
       const s=String(state?.status||'').toLowerCase();
       if(s==='done')return renderSchedule(state.result||state.schedule||state);
+      if(s==='partial'&&state?.result)return renderSchedule(state.result);
       if(s==='failed')throw Error(state.detail||state.problem||'The council lookup failed.');
       const wait=Math.max(5,Number(state.retry_after_seconds||state.retryAfterSeconds||5));
       await new Promise(r=>setTimeout(r,wait*1000));

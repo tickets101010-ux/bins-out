@@ -185,14 +185,14 @@ function parseICS(text){
 
 function parseGlasgowCalendar(html){
   const plain=String(html||'')
-    .replace(/<script[\\s\\S]*?<\\/script>/gi,' ')
-    .replace(/<style[\\s\\S]*?<\\/style>/gi,' ')
+    .replace(/<script[\s\S]*?<\/script>/gi,' ')
+    .replace(/<style[\s\S]*?<\/style>/gi,' ')
     .replace(/<[^>]+>/g,' ')
     .replace(/&nbsp;/gi,' ')
     .replace(/&amp;/gi,'&')
     .replace(/&#39;/gi,"'")
     .replace(/&quot;/gi,'"')
-    .replace(/\\s+/g,' ')
+    .replace(/\s+/g,' ')
     .trim();
 
   const found=[];
@@ -200,18 +200,18 @@ function parseGlasgowCalendar(html){
     const s=String(raw||'').trim();
     if(/^Tomorrow$/i.test(s)){
       const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+1);
-      found.push({date:d.toISOString().slice(0,10),name:name.trim().replace(/\\s+/g,' ')});
+      found.push({date:d.toISOString().slice(0,10),name:name.trim().replace(/\s+/g,' ')});
       return;
     }
-    const m=s.match(/(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)?\\s*(\\d{1,2})(?:st|nd|rd|th)?\\s+(January|February|March|April|May|June|July|August|September|October|November|December)\\s+(\\d{4})/i);
+    const m=s.match(/(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)?\s*(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/i);
     if(!m)return;
     const months={january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11};
     const d=new Date(Number(m[3]),months[m[2].toLowerCase()],Number(m[1]),12);
-    if(!Number.isNaN(d.getTime()))found.push({date:d.toISOString().slice(0,10),name:name.trim().replace(/\\s+/g,' ')});
+    if(!Number.isNaN(d.getTime()))found.push({date:d.toISOString().slice(0,10),name:name.trim().replace(/\s+/g,' ')});
   };
 
   let m;
-  const re=/Your\\s+next\\s+([A-Za-z][A-Za-z &'-]*?)\\s+day\\s+is\\s+((?:Tomorrow)|(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+)?\\d{1,2}(?:st|nd|rd|th)?\\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{4})/gi;
+  const re=/Your\s+next\s+([A-Za-z][A-Za-z &'-]*?)\s+day\s+is\s+((?:Tomorrow)|(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+)?\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})/gi;
   while((m=re.exec(plain)))add(m[1],m[2]);
 
   return [...new Map(found.map(x=>[x.name+'|'+x.date,x])).values()]

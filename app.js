@@ -190,7 +190,7 @@ async function selectAddress(x){
 
   try{
     if((current.council?.id||current.council?.gss)==='S12000049'){
-      const house=(current.label.match(/^\\s*(\\d+[A-Z]?)\\b/i)||[])[1]||'';
+      const house=(current.label.match(/^\s*(\d+[A-Z]?)\b/i)||[])[1]||'';
       if(!house)throw Error('The selected Glasgow address has no house number.');
 
       // The Glasgow gazetteer supplies the complete address list. Resolve

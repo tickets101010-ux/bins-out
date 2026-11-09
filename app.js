@@ -19,16 +19,23 @@ function hide(){ $('#status').classList.add('hidden'); }
 
 async function get(u){
   const ctl=new AbortController();
-  const timer=setTimeout(()=>ctl.abort(),20000);
+  const timer=setTimeout(()=>ctl.abort(),15000);
+  const urls=[u,'https://api.allorigins.win/raw?url='+encodeURIComponent(u)];
+  let last=null;
   try{
-    const r=await fetch(u,{headers:{Accept:'application/json'},signal:ctl.signal});
-    let j={};
-    try{j=await r.json()}catch{}
-    if(!r.ok) throw Error(j.detail||j.error||'Live service unavailable');
-    return j;
-  }catch(e){
-    if(e.name==='AbortError') throw Error('The live service took too long to respond.');
-    throw e;
+    for(const target of urls){
+      try{
+        const r=await fetch(target,{headers:{Accept:'application/json'},signal:ctl.signal});
+        let j={};
+        try{j=await r.json()}catch{}
+        if(r.ok)return j;
+        last=Error(j.detail||j.error||'Live service unavailable');
+      }catch(e){
+        last=e;
+      }
+    }
+    if(last?.name==='AbortError') throw Error('The live service took too long to respond.');
+    throw last||Error('Live service unavailable');
   }finally{clearTimeout(timer)}
 }
 

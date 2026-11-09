@@ -30,51 +30,12 @@ function addressLabel(x){
 
 async function findAddresses(postcode){
   const base=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(postcode));
-  let candidates=Array.isArray(base.candidates)?base.candidates:[];
+  const candidates=Array.isArray(base.candidates)?base.candidates:[];
   if(!candidates.length){
-    const ri=base.required_input||base.detail||'';
-    throw Error(ri?'The service could not find a property for that postcode.':'No properties were returned for that postcode.');
+    throw Error(base.required_input||base.detail||'No properties were returned for that postcode.');
   }
-
-  // WhenIsBins can return a partial candidate list. If the returned
-  // candidates identify a road, make a second, optional road query.
-  // Failure of that optional query must NEVER break the postcode search.
-  const streets=new Set();
-  for(const x of candidates){
-    const label=addressLabel(x);
-    const parts=label.split(',').map(v=>v.trim());
-    if(parts.length>=3){
-      const road=parts[0].replace(/^\d+[A-Z]?\s+/,'').trim();
-      if(road) streets.add(road);
-    }
-  }
-
-  let expanded=candidates.slice();
-  for(const street of streets){
-    try{
-      const q=await getJSON(
-        WB+'/addresses?postcode='+encodeURIComponent(postcode)+'&q='+encodeURIComponent(street)
-      );
-      const extra=Array.isArray(q.candidates)?q.candidates:[];
-      const seen=new Set(expanded.map(x=>String(x.id)));
-      for(const x of extra){
-        const id=String(x.id);
-        if(id && !seen.has(id)){expanded.push(x);seen.add(id)}
-      }
-    }catch(_){
-      // Base postcode result remains valid; do not turn an optional
-      // expansion failure into "Failed to fetch".
-    }
-  }
-
-  expanded.sort((a,b)=>{
-    const na=parseInt((addressLabel(a).match(/^\\d+/)||['999999'])[0],10);
-    const nb=parseInt((addressLabel(b).match(/^\\d+/)||['999999'])[0],10);
-    return na-nb;
-  });
-
   return {
-    candidates:expanded,
+    candidates,
     council:base.council||base.collecting_council||null,
     required:base.required_input||'property_id',
     input_options:base.input_options||[]

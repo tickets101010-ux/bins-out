@@ -212,6 +212,22 @@ async function selectAddress(x){
       const best=ranked[0];
       if(!best || best.score<3)throw Error('Glasgow could not match that exact property to a UPRN.');
 
+      // Prefer the live WhenIsBins Schedule for the verified Glasgow UPRN.
+      // This is a GET-only read, so it works from GitHub Pages without the
+      // browser-restricted POST lookup flow. A due schedule is refreshed by
+      // WhenIsBins in the background.
+      try{
+        const sr=await getJSON(WB+'/schedules/uprn/'+encodeURIComponent(best.uprn));
+        if(sr && (Array.isArray(sr.collections)||Array.isArray(sr.by_date))){
+          return renderSchedule(sr);
+        }
+      }catch(scheduleError){
+        // 404 means WhenIsBins has no stored schedule for this UPRN yet.
+        // Fall through to Glasgow's own live calendar rather than inventing dates.
+        const message=String(scheduleError.message||'');
+        if(!/HTTP 404|no_schedule/i.test(message)) throw scheduleError;
+      }
+
       const cal='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(best.uprn);
       const html=await getText(cal);
       const plain=html
@@ -282,6 +298,14 @@ function renderSchedule(r){
     for(const d of (Array.isArray(c?.dates)?c.dates:[])){
       const ds=typeof d==='string'?d:d?.date;
       if(ds)bins.push({date:ds,name:c.name||c.waste_type||'Collection'});
+    }
+  }
+  if(!bins.length && Array.isArray(r?.by_date)){
+    for(const d of r.by_date){
+      const ds=typeof d==='string'?d:d?.date;
+      const names=Array.isArray(d?.collections)?d.collections:[];
+      if(ds && names.length)for(const x of names)bins.push({date:ds,name:typeof x==='string'?x:x?.name||x?.waste_type||'Collection'});
+      else if(ds)bins.push({date:ds,name:d?.name||d?.waste_type||'Collection'});
     }
   }
   current.schedule={confirmed:true,bins};

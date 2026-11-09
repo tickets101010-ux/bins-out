@@ -258,19 +258,34 @@ function bngToWgs84(E,N){
 }
 
 async function resolveGlasgowUprn(x){
-  const ll=bngToWgs84(x.x,x.y);
-  if(!ll)throw Error('The selected Glasgow property has no map reference.');
-  const q='https://api.uprns.io/nearest?longitude='+encodeURIComponent(ll.lon)+'&latitude='+encodeURIComponent(ll.lat)+'&radius=40&limit=8';
+  // Use Glasgow City Council's own UPRN geocoder for the exact selected
+  // address. The old nearest-UPRN lookup could choose the wrong property.
+  const q='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(x.label+', '+x.postcode)+'&f=json&maxLocations=10&outFields=*';
   const d=await getJSON(q);
-  const rows=Array.isArray(d)?d:[];
-  if(!rows.length)throw Error('No UPRN was found for the selected Glasgow property.');
+  const rows=Array.isArray(d?.candidates)?d.candidates:[];
+  if(!rows.length)throw Error('Glasgow could not match that exact property to a UPRN.');
+
   const wanted=normAddress(x.label);
-  const house=(wanted.match(/^\\d+/)||[''])[0];
+  const house=(wanted.match(/^\d+/)||[''])[0];
+  const postcode=String(x.postcode||'').replace(/\s+/g,'').toUpperCase();
+
   const ranked=rows.map(r=>{
-    const score=(String(r?.postcode||'').replace(/\\s+/g,'').toUpperCase()===String(x.postcode||'').replace(/\\s+/g,'').toUpperCase()?5:0);
-    return {...r,_score:score,_distance:Number(r?.distance??999999)};
-  }).sort((a,b)=>b._score-a._score||a._distance-b._distance);
-  return String(ranked[0].uprn);
+    const label=String(r?.address||r?.attributes?.Match_addr||'').trim();
+    const norm=normAddress(label);
+    const rPost=String(r?.attributes?.PostCode||r?.attributes?.POSTCODE||r?.attributes?.postcode||'').replace(/\s+/g,'').toUpperCase();
+    const rHouse=(norm.match(/^\d+/)||[''])[0];
+    let score=0;
+    if(house&&rHouse===house)score+=10;
+    if(norm===wanted)score+=20;
+    if(postcode&&rPost===postcode)score+=10;
+    if(norm.includes(wanted.replace(/^\d+\s*/,'') ))score+=5;
+    const uprn=String(r?.attributes?.UPRN||r?.attributes?.uprn||r?.attributes?.LOCATOR_ID||r?.attributes?.Locator_ID||'').trim();
+    return {uprn,label,score};
+  }).filter(r=>r.uprn).sort((a,b)=>b.score-a.score);
+
+  if(!ranked.length)throw Error('Glasgow found the address but supplied no UPRN.');
+  if(ranked[0].score<20)throw Error('Glasgow could not confidently match the exact selected property.');
+  return ranked[0].uprn;
 }
 
 async function selectAddress(x){

@@ -343,25 +343,44 @@ async function selectAddress(x){
   msg('Checking the live collection schedule…');
 
   try{
-    let property=x;
-
-    // Glasgow's address gazetteer supplies the complete property list, but
-    // WhenIsBins owns the collection property ID. Resolve the selected house
-    // back through WhenIsBins using GET only.
+    // Glasgow is handled directly by Glasgow City Council's own calendar.
+    // This is deliberately NOT routed through WhenIsBins: that service was
+    // the source of the HTTP 408 shown in the current build.
     if((current.council?.id||current.council?.gss)==='S12000049'){
+      const r=await getJSON(
+        'https://tickets101010-ux.github.io/bins-out-connector/resolve-uprn?postcode='+
+        encodeURIComponent(current.postcode)+'&address='+encodeURIComponent(current.label)
+      );
+      if(r.status!=='matched'||!/^\\d{8,20}$/.test(String(r.uprn||''))){
+        throw Error(r.detail||'Glasgow could not confirm the exact property.');
+      }
+      current.property_id=String(r.uprn);
+
+      const html=await getText(
+        'https://tickets101010-ux.github.io/bins-out-connector/glasgow-calendar?uprn='+
+        encodeURIComponent(current.property_id)
+      );
+      const bins=parseGlasgowCalendar(html);
+      if(!bins.length)throw Error('Glasgow returned no dated collections for this property.');
+
+      renderSchedule({
+        matched_address:current.label,
+        council:current.council,
+        collections:bins.map(b=>({name:b.name,dates:[b.date]}))
+      });
+      return;
+    }
+
+    // Non-Glasgow councils keep the existing WhenIsBins path.
+    let property=x;
+    if(current.council?.id){
       property=await findWhenIsBinsProperty(current.postcode,current.label);
       current.property_id=property.id;
     }
 
-    // IMPORTANT: WhenIsBins intentionally restricts browser POST /lookups.
-    // GitHub Pages therefore cannot create a lookup directly. Use the public
-    // GET calendar-url endpoint for properties that already have a verified
-    // saved schedule, then read the iCalendar feed. This removes the browser
-    // POST/CORS failure that was producing "Failed to fetch".
     const calendarUrl=String(
       await getText(WB+'/calendar-url?property_id='+encodeURIComponent(property.id))
     ).trim();
-
     if(!calendarUrl)throw Error('No public collection calendar is available for this property yet.');
 
     const ics=await fetchText(calendarUrl);

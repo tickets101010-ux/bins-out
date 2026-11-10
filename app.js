@@ -70,7 +70,7 @@ async function glasgowAddresses(postcode){
   const seen=new Set(),out=[];
   for(const c of rows){
     const label=String(c?.address||c?.attributes?.Match_addr||'').trim();
-    const id=String(c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||c?.attributes?.LOCATOR_DESCRIPTION||'').trim();
+    const id=String(c?.attributes?.UPRN||c?.attributes?.uprn||c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||c?.attributes?.LOCATOR_DESCRIPTION||'').trim();
     if(!label||!id||seen.has(label))continue;
     seen.add(label);
     out.push({id,label,postcode,x:c?.attributes?.X??c?.x,y:c?.attributes?.Y??c?.y,council:{id:'S12000049',name:'Glasgow City Council'}});
@@ -257,37 +257,6 @@ function bngToWgs84(E,N){
   return {lat:latW*180/Math.PI,lon:lon*180/Math.PI};
 }
 
-async function resolveGlasgowUprn(x){
-  // Use Glasgow City Council's own UPRN geocoder for the exact selected
-  // address. The old nearest-UPRN lookup could choose the wrong property.
-  const q='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(x.label+', '+x.postcode)+'&f=json&maxLocations=10&outFields=*';
-  const d=await getJSON(q);
-  const rows=Array.isArray(d?.candidates)?d.candidates:[];
-  if(!rows.length)throw Error('Glasgow could not match that exact property to a UPRN.');
-
-  const wanted=normAddress(x.label);
-  const house=(wanted.match(/^\d+/)||[''])[0];
-  const postcode=String(x.postcode||'').replace(/\s+/g,'').toUpperCase();
-
-  const ranked=rows.map(r=>{
-    const label=String(r?.address||r?.attributes?.Match_addr||'').trim();
-    const norm=normAddress(label);
-    const rPost=String(r?.attributes?.PostCode||r?.attributes?.POSTCODE||r?.attributes?.postcode||'').replace(/\s+/g,'').toUpperCase();
-    const rHouse=(norm.match(/^\d+/)||[''])[0];
-    let score=0;
-    if(house&&rHouse===house)score+=10;
-    if(norm===wanted)score+=20;
-    if(postcode&&rPost===postcode)score+=10;
-    if(norm.includes(wanted.replace(/^\d+\s*/,'') ))score+=5;
-    const uprn=String(r?.attributes?.UPRN||r?.attributes?.uprn||r?.attributes?.LOCATOR_ID||r?.attributes?.Locator_ID||'').trim();
-    return {uprn,label,score};
-  }).filter(r=>r.uprn).sort((a,b)=>b.score-a.score);
-
-  if(!ranked.length)throw Error('Glasgow found the address but supplied no UPRN.');
-  if(ranked[0].score<20)throw Error('Glasgow could not confidently match the exact selected property.');
-  return ranked[0].uprn;
-}
-
 async function selectAddress(x){
   current={postcode:pc($('#postcode').value),property_id:x.id,label:addressLabel(x),council:x.council||null};
   $('#schedule').classList.add('hidden');
@@ -295,7 +264,8 @@ async function selectAddress(x){
 
   try{
     if((current.council?.id||current.council?.gss)==='S12000049'){
-      const uprn=await resolveGlasgowUprn(x);
+      const uprn=String(x.id||'').trim();
+      if(!/^\d{1,12}$/.test(uprn))throw Error('Glasgow did not provide a valid UPRN for this property.');
       current.property_id=uprn;
       const cal='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(uprn);
       const html=await getText(cal);

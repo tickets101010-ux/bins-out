@@ -260,29 +260,27 @@ function bngToWgs84(E,N){
 async function resolveGlasgowUPRN(x){
   const address=addressLabel(x),postcode=pc($('#postcode').value);
 
-  // The Glasgow address locator gives the selected property's exact British
-  // National Grid coordinates. Convert those coordinates to WGS84 and use
-  // the open UPRN reverse service to get the nearest authoritative UPRN.
-  // This is much more reliable than trying to make Glasgow's separate UPRN
-  // locator guess the same property from text.
-  const point=bngToWgs84(x?.x,x?.y);
-  if(point){
+  // The GMS-Address locator already gives us the exact property point in
+  // British National Grid (EPSG:27700). Send that point directly to
+  // Glasgow's GMS-UPRN reverse locator. This avoids the unreliable chain of
+  // text -> postcode matching -> third-party reverse lookup.
+  const xcoord=Number(x?.x),ycoord=Number(x?.y);
+  if(Number.isFinite(xcoord)&&Number.isFinite(ycoord)){
     try{
-      const u='https://api.uprns.io/reverse?longitude='+encodeURIComponent(point.lon)+'&latitude='+encodeURIComponent(point.lat);
-      const r=await getJSON(u);
-      const uprn=String(r?.uprn||'').trim();
-      const distance=Number(r?.distance);
-      const returnedPostcode=pc(String(r?.postcode||''));
-      if(/^\d{1,12}$/.test(uprn) &&
-         (!Number.isFinite(distance)||distance<=50) &&
-         (!returnedPostcode||returnedPostcode===postcode)){
-        return uprn;
-      }
+      const u='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/reverseGeocode?location='+encodeURIComponent(xcoord+','+ycoord)+'&distance=100&f=json';
+      const d=JSON.parse(await getText(u));
+      const a=d?.address||{};
+      const attrs=d?.location||d?.attributes||{};
+      const id=String(
+        a?.UPRN||a?.uprn||attrs?.UPRN||attrs?.uprn||
+        attrs?.LOCATOR_ID||attrs?.Locator_ID||
+        d?.LOCATOR_ID||d?.uprn||''
+      ).trim();
+      if(/^\d{8,20}$/.test(id))return id;
     }catch(e){}
   }
 
-  // Keep the Glasgow locator as a fallback if the open UPRN service is
-  // temporarily unavailable.
+  // Text fallback against Glasgow's dedicated UPRN locator.
   const queries=[
     address+', '+postcode,
     address,
@@ -303,18 +301,11 @@ async function resolveGlasgowUPRN(x){
       const d=JSON.parse(await getText(u));
       const rows=Array.isArray(d?.candidates)?d.candidates:[];
       const ranked=rows.map(c=>{
-        const a=norm(c?.address||c?.attributes?.Match_addr||c?.attributes?.LOCATOR_DESCRIPTION||'');
-        const id=String(
-          c?.attributes?.UPRN||c?.attributes?.uprn||
-          c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||
-          c?.attributes?.LOCATOR_DESCRIPTION||c?.attributes?.Locator_DESCRIPTION||''
-        ).trim();
-        const score=(a===wanted?6:0)
-          +(house&&a.startsWith(house+' ')?3:0)
-          +(a.includes(wanted.replace(/^\d+\s*/,''))?2:0)
-          +(Number(c?.score||c?.attributes?.Score||0)>=90?1:0);
+        const ca=norm(c?.address||c?.attributes?.Match_addr||c?.attributes?.LOCATOR_DESCRIPTION||'');
+        const id=String(c?.attributes?.UPRN||c?.attributes?.uprn||c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||'').trim();
+        const score=(ca===wanted?6:0)+(house&&ca.startsWith(house+' ')?3:0)+(ca.includes(wanted.replace(/^\d+\s*/,''))?2:0)+(Number(c?.score||c?.attributes?.Score||0)>=90?1:0);
         return {id,score};
-      }).filter(c=>/^\d{1,12}$/.test(c.id)).sort((a,b)=>b.score-a.score);
+      }).filter(c=>/^\d{8,20}$/.test(c.id)).sort((a,b)=>b.score-a.score);
       if(ranked.length)return ranked[0].id;
     }catch(e){}
   }

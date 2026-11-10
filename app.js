@@ -269,11 +269,10 @@ async function resolveGlasgowUPRN(x){
   // In this locator that reference is the property's UPRN, so use it directly
   // when it is numeric. This is the important bit: do NOT throw away the exact
   // property identifier and try to rediscover the same house with fuzzy text.
-  const direct=String(x?.id||'').trim();
-  if(/^\d{8,20}$/.test(direct))return direct;
+  // Do not assume the address locator's LOCATOR_ID is a UPRN.
+  // Glasgow exposes a separate GMS-UPRN locator, so verify the selected house
+  // there before calling the official collection calendar.
 
-  // If the address locator ever supplies a non-numeric reference, fall back to
-  // Glasgow's dedicated UPRN locator using the exact property coordinates.
   const xcoord=Number(x?.x),ycoord=Number(x?.y);
   if(Number.isFinite(xcoord)&&Number.isFinite(ycoord)){
     try{

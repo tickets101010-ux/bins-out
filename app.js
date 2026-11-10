@@ -347,17 +347,14 @@ async function selectAddress(x){
     // This is deliberately NOT routed through WhenIsBins: that service was
     // the source of the HTTP 408 shown in the current build.
     if((current.council?.id||current.council?.gss)==='S12000049'){
-      const r=await getJSON(
-        'https://tickets101010-ux.github.io/bins-out-connector/resolve-uprn?postcode='+
-        encodeURIComponent(current.postcode)+'&address='+encodeURIComponent(current.label)
-      );
-      if(r.status!=='matched'||!/^\\d{8,20}$/.test(String(r.uprn||''))){
-        throw Error(r.detail||'Glasgow could not confirm the exact property.');
-      }
-      current.property_id=String(r.uprn);
+      // Glasgow address results are resolved to the exact UPRN and then read
+      // directly from Glasgow City Council's official collection calendar.
+      // This avoids the WhenIsBins live lookup that was timing out with HTTP 408.
+      const uprn=await resolveGlasgowUPRN(x);
+      current.property_id=String(uprn);
 
-      const html=await getText(
-        'https://tickets101010-ux.github.io/bins-out-connector/glasgow-calendar?uprn='+
+      const html=await fetchText(
+        'https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+
         encodeURIComponent(current.property_id)
       );
       const bins=parseGlasgowCalendar(html);

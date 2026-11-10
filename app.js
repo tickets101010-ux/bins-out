@@ -73,7 +73,7 @@ async function glasgowAddresses(postcode){
     const id=String(c?.attributes?.UPRN||c?.attributes?.uprn||c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||c?.attributes?.LOCATOR_DESCRIPTION||'').trim();
     if(!label||!id||seen.has(label))continue;
     seen.add(label);
-    out.push({id,label,postcode,x:c?.attributes?.X??c?.x,y:c?.attributes?.Y??c?.y,council:{id:'S12000049',name:'Glasgow City Council'}});
+    out.push({id,label,postcode,x:c?.attributes?.X??c?.x,y:c?.attributes?.Y??c?.y,attrs:c?.attributes||{},council:{id:'S12000049',name:'Glasgow City Council'}});
   }
   out.sort((a,b)=>{
     const na=parseInt((a.label.match(/^\d+/)||['999999'])[0],10);
@@ -269,9 +269,10 @@ async function resolveGlasgowUPRN(x){
   // In this locator that reference is the property's UPRN, so use it directly
   // when it is numeric. This is the important bit: do NOT throw away the exact
   // property identifier and try to rediscover the same house with fuzzy text.
-  // Do not assume the address locator's LOCATOR_ID is a UPRN.
-  // Glasgow exposes a separate GMS-UPRN locator, so verify the selected house
-  // there before calling the official collection calendar.
+  // The address result may already contain the UPRN in its attributes.
+  // Prefer that exact identifier before doing a second locator request.
+  const supplied=String(x?.attrs?.UPRN||x?.attrs?.uprn||'').trim();
+  if(/^\d{8,20}$/.test(supplied))return supplied;
 
   const xcoord=Number(x?.x),ycoord=Number(x?.y);
   if(Number.isFinite(xcoord)&&Number.isFinite(ycoord)){

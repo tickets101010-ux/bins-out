@@ -265,7 +265,7 @@ async function resolveGlasgowUPRN(x){
   // when it is numeric. This is the important bit: do NOT throw away the exact
   // property identifier and try to rediscover the same house with fuzzy text.
   const direct=String(x?.id||'').trim();
-  if(/^\\d{8,20}$/.test(direct))return direct;
+  if(/^\d{8,20}$/.test(direct))return direct;
 
   // If the address locator ever supplies a non-numeric reference, fall back to
   // Glasgow's dedicated UPRN locator using the exact property coordinates.
@@ -327,7 +327,7 @@ async function findWhenIsBinsProperty(postcode,label){
   const want=normAddress(firstLine);
   const exact=rows.find(x=>normAddress(addressLabel(x))===want)
     ||rows.find(x=>normAddress(addressLabel(x)).startsWith(want+' '))
-    ||rows.find(x=>String(addressLabel(x)).match(/^\\d+/));
+    ||null;
   if(!exact?.id)throw Error('WhenIsBins could not return the collection property ID for '+firstLine+'.');
   return exact;
 }

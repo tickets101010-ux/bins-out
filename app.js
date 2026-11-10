@@ -317,32 +317,43 @@ async function resolveGlasgowUPRN(x){
 
   throw Error('Glasgow could not resolve a UPRN for '+address+'.');
 }
+async function findWhenIsBinsProperty(postcode,label){
+  // The Glasgow address list above is used only to give the user the complete
+  // property list. WhenIsBins is the collection-data provider and supplies its
+  // own opaque property_id for the selected house. Never turn that ID into a UPRN.
+  const firstLine=String(label||'').split(',')[0].trim();
+  const d=await getJSON(WB+'/addresses?postcode='+encodeURIComponent(postcode)+'&q='+encodeURIComponent(firstLine));
+  const rows=Array.isArray(d?.candidates)?d.candidates:[];
+  const want=normAddress(firstLine);
+  const exact=rows.find(x=>normAddress(addressLabel(x))===want)
+    ||rows.find(x=>normAddress(addressLabel(x)).startsWith(want+' '))
+    ||rows.find(x=>String(addressLabel(x)).match(/^\\d+/));
+  if(!exact?.id)throw Error('WhenIsBins could not return the collection property ID for '+firstLine+'.');
+  return exact;
+}
+
 async function selectAddress(x){
   current={postcode:pc($('#postcode').value),property_id:x.id,label:addressLabel(x),council:x.council||null};
   $('#schedule').classList.add('hidden');
   msg('Checking the live collection schedule…');
 
   try{
+    let property=x;
+
+    // For Glasgow, the council locator supplies the full address list, but its
+    // locator ID is NOT the same thing as WhenIsBins' opaque property_id.
+    // Resolve the selected address back through WhenIsBins, then submit that
+    // exact property_id. This removes the broken UPRN detour completely.
     if((current.council?.id||current.council?.gss)==='S12000049'){
-      const uprn=await resolveGlasgowUPRN(x);
-      current.property_id=uprn;
-      const cal='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(uprn);
-      const html=await getText(cal);
-      const found=parseGlasgowCalendar(html);
-      if(found.length){
-        return renderSchedule({
-          matched_address:current.label,
-          council:{name:'Glasgow City Council'},
-          collections:found.map(v=>({name:v.name,dates:[{date:v.date}]}))
-        });
-      }
-      throw Error('Glasgow returned no dated collections for this exact property.');
+      property=await findWhenIsBinsProperty(current.postcode,current.label);
+      current.property_id=property.id;
     }
+
     const key=crypto.randomUUID();
     const created=await getJSON(WB+'/lookups',{
       method:'POST',
       headers:{'Content-Type':'application/json','Idempotency-Key':key},
-      body:JSON.stringify({postcode:current.postcode,property_id:x.id})
+      body:JSON.stringify({postcode:current.postcode,property_id:property.id})
     });
     let state=created,id=String(created?.id||created?.lookup_id||'');
     if(!id)throw Error(created?.detail||'The collection lookup did not return an ID.');

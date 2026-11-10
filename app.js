@@ -340,33 +340,35 @@ async function selectAddress(x){
   try{
     let property=x;
 
-    // For Glasgow, the council locator supplies the full address list, but its
-    // locator ID is NOT the same thing as WhenIsBins' opaque property_id.
-    // Resolve the selected address back through WhenIsBins, then submit that
-    // exact property_id. This removes the broken UPRN detour completely.
+    // Glasgow's address gazetteer supplies the complete property list, but
+    // WhenIsBins owns the collection property ID. Resolve the selected house
+    // back through WhenIsBins using GET only.
     if((current.council?.id||current.council?.gss)==='S12000049'){
       property=await findWhenIsBinsProperty(current.postcode,current.label);
       current.property_id=property.id;
     }
 
-    const key=crypto.randomUUID();
-    const created=await getJSON(WB+'/lookups',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Idempotency-Key':key},
-      body:JSON.stringify({postcode:current.postcode,property_id:property.id})
+    // IMPORTANT: WhenIsBins intentionally restricts browser POST /lookups.
+    // GitHub Pages therefore cannot create a lookup directly. Use the public
+    // GET calendar-url endpoint for properties that already have a verified
+    // saved schedule, then read the iCalendar feed. This removes the browser
+    // POST/CORS failure that was producing "Failed to fetch".
+    const cal=await getJSON(WB+'/calendar-url?property_id='+encodeURIComponent(property.id));
+    const calendarUrl=String(
+      typeof cal==='string'?cal:cal?.calendar_url||cal?.url||''
+    ).trim();
+
+    if(!calendarUrl)throw Error('No public collection calendar is available for this property yet.');
+
+    const ics=await fetchText(calendarUrl);
+    const bins=parseICS(ics);
+    if(!bins.length)throw Error('The live collection calendar returned no dated collections.');
+
+    renderSchedule({
+      matched_address:current.label,
+      council:current.council,
+      collections:bins.map(b=>({name:b.name,dates:[b.date]}))
     });
-    let state=created,id=String(created?.id||created?.lookup_id||'');
-    if(!id)throw Error(created?.detail||'The collection lookup did not return an ID.');
-    for(let i=0;i<12;i++){
-      const s=String(state?.status||'').toLowerCase();
-      if(s==='done')return renderSchedule(state.result||state.schedule||state);
-      if(s==='partial'&&state?.result)return renderSchedule(state.result);
-      if(s==='failed')throw Error(state.detail||state.problem||'The council lookup failed.');
-      const wait=Math.max(5,Number(state.retry_after_seconds||state.retryAfterSeconds||5));
-      await new Promise(r=>setTimeout(r,wait*1000));
-      state=await getJSON(WB+'/lookups/'+encodeURIComponent(id));
-    }
-    throw Error('The council lookup is taking longer than usual. Please try again in a moment.');
   }catch(e){
     msg(esc(e.message)+'<br><small>No collection date has been invented.</small>','error');
   }

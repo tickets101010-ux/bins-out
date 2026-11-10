@@ -1,5 +1,6 @@
 const KEY='binsout_v2_saved';
 const WB='https://whenisbins.com/v1';
+const CONNECTOR='https://bins-out-connector.tickets101010.workers.dev';
 const ALLOWED=new Set(['S12000049','S12000011']);
 let current=null,deferred=null;
 
@@ -343,56 +344,64 @@ async function selectAddress(x){
   msg('Checking the live collection schedule…');
 
   try{
-    // Glasgow is handled directly by Glasgow City Council's own calendar.
-    // This is deliberately NOT routed through WhenIsBins: that service was
-    // the source of the HTTP 408 shown in the current build.
-    if((current.council?.id||current.council?.gss)==='S12000049'){
-      // Glasgow address results are resolved to the exact UPRN and then read
-      // directly from Glasgow City Council's official collection calendar.
-      // This avoids the WhenIsBins live lookup that was timing out with HTTP 408.
-      const uprn=await resolveGlasgowUPRN(x);
-      current.property_id=String(uprn);
+    // The Glasgow list is only the exact-house picker. Resolve that selected
+    // house to the collection provider's opaque property ID, then submit the
+    // lookup through our Cloudflare connector (server-side POST).
+    const property=await findWhenIsBinsProperty(current.postcode,current.label);
+    current.property_id=property.id;
 
-      const html=await fetchText(
-        'https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+
-        encodeURIComponent(current.property_id)
-      );
-      const bins=parseGlasgowCalendar(html);
-      if(!bins.length)throw Error('Glasgow returned no dated collections for this property.');
+    let result=await getJSON(CONNECTOR+'/lookups',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Idempotency-Key':crypto.randomUUID()
+      },
+      body:JSON.stringify({postcode:current.postcode,property_id:property.id})
+    });
 
-      renderSchedule({
-        matched_address:current.label,
-        council:current.council,
-        collections:bins.map(b=>({name:b.name,dates:[b.date]}))
-      });
-      return;
+    let rounds=0;
+    while(['queued','running','partial'].includes(result.status) && result.id && rounds<24){
+      const r=result.result;
+      const hasDates=Array.isArray(r?.collections) &&
+        r.collections.some(c=>Array.isArray(c.dates)&&c.dates.length);
+      if(result.status==='partial' && r?.provisional!==true &&
+         r?.address_match!=='postcode_representative' && hasDates)break;
+
+      const waitSeconds=Math.max(5,Number(result.retry_after_seconds||5));
+      await new Promise(resolve=>setTimeout(resolve,waitSeconds*1000));
+      result=await getJSON(CONNECTOR+'/status?id='+encodeURIComponent(result.id));
+      rounds++;
     }
 
-    // Non-Glasgow councils keep the existing WhenIsBins path.
-    let property=x;
-    if(current.council?.id){
-      property=await findWhenIsBinsProperty(current.postcode,current.label);
-      current.property_id=property.id;
+    if(!['done','partial'].includes(result.status)){
+      throw Error(result.detail||result.problem||'The live collection lookup did not complete.');
     }
 
-    const calendarUrl=String(
-      await getText(WB+'/calendar-url?property_id='+encodeURIComponent(property.id))
-    ).trim();
-    if(!calendarUrl)throw Error('No public collection calendar is available for this property yet.');
+    const r=result.result||{};
+    if(r.provisional===true || r.address_match==='postcode_representative'){
+      throw Error('The live service returned a provisional neighbouring-property result, not an exact house.');
+    }
 
-    const ics=await fetchText(calendarUrl);
-    const bins=parseICS(ics);
-    if(!bins.length)throw Error('The live collection calendar returned no dated collections.');
+    const collections=Array.isArray(r.collections)?r.collections:[];
+    const dated=collections.flatMap(c=>
+      (Array.isArray(c.dates)?c.dates:[]).map(d=>({name:c.name||c.waste_type||'Collection',date:d}))
+    ).filter(x=>/^\\d{4}-\\d{2}-\\d{2}$/.test(String(x.date)));
+
+    if(!dated.length)throw Error(r.detail||'No dated collections were returned for this exact property.');
 
     renderSchedule({
-      matched_address:current.label,
-      council:current.council,
-      collections:bins.map(b=>({name:b.name,dates:[b.date]}))
+      matched_address:r.matched_address||current.label,
+      council:r.council||current.council,
+      collections:collections.map(c=>({
+        name:c.name||c.waste_type||'Collection',
+        dates:Array.isArray(c.dates)?c.dates:[]
+      }))
     });
   }catch(e){
     msg(esc(e.message)+'<br><small>No collection date has been invented.</small>','error');
   }
 }
+
 function renderSchedule(r){
   const bins=[];
   for(const c of (Array.isArray(r?.collections)?r.collections:[])){

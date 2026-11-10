@@ -273,7 +273,7 @@ async function resolveGlasgowUPRN(x){
       const uprn=String(r?.uprn||'').trim();
       const distance=Number(r?.distance);
       const returnedPostcode=pc(String(r?.postcode||''));
-      if(/^\\d{1,12}$/.test(uprn) &&
+      if(/^\d{1,12}$/.test(uprn) &&
          (!Number.isFinite(distance)||distance<=50) &&
          (!returnedPostcode||returnedPostcode===postcode)){
         return uprn;
@@ -286,16 +286,16 @@ async function resolveGlasgowUPRN(x){
   const queries=[
     address+', '+postcode,
     address,
-    address.replace(/,\\s*Glasgow.*$/i,'')+', '+postcode,
-    address.replace(/,\\s*Glasgow.*$/i,'')
+    address.replace(/,\s*Glasgow.*$/i,'')+', '+postcode,
+    address.replace(/,\s*Glasgow.*$/i,'')
   ];
   const norm=s=>String(s||'').toUpperCase()
-    .replace(/\\bST\\b/g,'STREET').replace(/\\bRD\\b/g,'ROAD')
-    .replace(/\\bAVE\\b/g,'AVENUE').replace(/\\bCRES\\b/g,'CRESCENT')
-    .replace(/\\bDR\\b/g,'DRIVE').replace(/\\bLN\\b/g,'LANE')
-    .replace(/\\bGDNS\\b/g,'GARDENS').replace(/\\bPL\\b/g,'PLACE')
-    .replace(/[^A-Z0-9]+/g,' ').trim().replace(/\\s+/g,' ');
-  const wanted=norm(address),house=(wanted.match(/^\\d+/)||[''])[0];
+    .replace(/\bST\b/g,'STREET').replace(/\bRD\b/g,'ROAD')
+    .replace(/\bAVE\b/g,'AVENUE').replace(/\bCRES\b/g,'CRESCENT')
+    .replace(/\bDR\b/g,'DRIVE').replace(/\bLN\b/g,'LANE')
+    .replace(/\bGDNS\b/g,'GARDENS').replace(/\bPL\b/g,'PLACE')
+    .replace(/[^A-Z0-9]+/g,' ').trim().replace(/\s+/g,' ');
+  const wanted=norm(address),house=(wanted.match(/^\d+/)||[''])[0];
 
   for(const q of queries){
     try{
@@ -311,10 +311,10 @@ async function resolveGlasgowUPRN(x){
         ).trim();
         const score=(a===wanted?6:0)
           +(house&&a.startsWith(house+' ')?3:0)
-          +(a.includes(wanted.replace(/^\\d+\\s*/,''))?2:0)
+          +(a.includes(wanted.replace(/^\d+\s*/,''))?2:0)
           +(Number(c?.score||c?.attributes?.Score||0)>=90?1:0);
         return {id,score};
-      }).filter(c=>/^\\d{1,12}$/.test(c.id)).sort((a,b)=>b.score-a.score);
+      }).filter(c=>/^\d{1,12}$/.test(c.id)).sort((a,b)=>b.score-a.score);
       if(ranked.length)return ranked[0].id;
     }catch(e){}
   }

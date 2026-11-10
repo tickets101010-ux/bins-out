@@ -260,10 +260,15 @@ function bngToWgs84(E,N){
 async function resolveGlasgowUPRN(x){
   const address=addressLabel(x),postcode=pc($('#postcode').value);
 
-  // The GMS-Address locator already gives us the exact property point in
-  // British National Grid (EPSG:27700). Send that point directly to
-  // Glasgow's GMS-UPRN reverse locator. This avoids the unreliable chain of
-  // text -> postcode matching -> third-party reverse lookup.
+  // Glasgow's GMS-Address locator returns LOCATOR_ID for each exact property.
+  // In this locator that reference is the property's UPRN, so use it directly
+  // when it is numeric. This is the important bit: do NOT throw away the exact
+  // property identifier and try to rediscover the same house with fuzzy text.
+  const direct=String(x?.id||'').trim();
+  if(/^\\d{8,20}$/.test(direct))return direct;
+
+  // If the address locator ever supplies a non-numeric reference, fall back to
+  // Glasgow's dedicated UPRN locator using the exact property coordinates.
   const xcoord=Number(x?.x),ycoord=Number(x?.y);
   if(Number.isFinite(xcoord)&&Number.isFinite(ycoord)){
     try{

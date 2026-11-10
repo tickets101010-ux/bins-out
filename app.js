@@ -262,14 +262,14 @@ async function resolveGlasgowUPRN(x){
   let uprn=String(x?.id||'').trim();
   if(/^\d{1,12}$/.test(uprn))return uprn;
 
-  const u='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(address+', '+postcode)+'&f=json&maxLocations=10&outFields=*';
+  const u='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-Address/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(address+', '+postcode)+'&f=json&maxLocations=10&outFields=*';
   const d=JSON.parse(await getText(u));
   const rows=Array.isArray(d?.candidates)?d.candidates:[];
   const norm=s=>String(s||'').toUpperCase().replace(/\bST\b/g,'STREET').replace(/\bRD\b/g,'ROAD').replace(/\bAVE\b/g,'AVENUE').replace(/\bCRES\b/g,'CRESCENT').replace(/\bDR\b/g,'DRIVE').replace(/\bLN\b/g,'LANE').replace(/\bGDNS\b/g,'GARDENS').replace(/\bPL\b/g,'PLACE').replace(/[^A-Z0-9]+/g,' ').trim().replace(/\s+/g,' ');
   const wanted=norm(address),house=(wanted.match(/^\d+/)||[''])[0];
   const ranked=rows.map(c=>{
     const a=norm(c?.address||c?.attributes?.Match_addr||'');
-    const id=String(c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||c?.attributes?.UPRN||c?.attributes?.uprn||c?.attributes?.LOCATOR_DESCRIPTION||c?.attributes?.Locator_DESCRIPTION||'').trim();
+    const id=String(c?.attributes?.UPRN||c?.attributes?.uprn||c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||'').trim();
     const score=(house&&a.startsWith(house+' ')?2:0)+(a===wanted?5:0)+(a.includes(wanted.replace(/^\d+\s*/,''))?1:0)+(Number(c?.score||c?.attributes?.Score||0)>=95?1:0);
     return {a,id,score};
   }).filter(c=>/^\d{1,12}$/.test(c.id)).sort((a,b)=>b.score-a.score);

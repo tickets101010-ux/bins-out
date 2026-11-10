@@ -154,7 +154,12 @@ function showCandidates(a){
 async function fetchText(url){
   const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),20000);
   try{
-    const r=await fetch(url,{headers:{Accept:'text/plain,text/calendar,application/json'},signal:ctl.signal});
+    let r;
+    try{
+      r=await fetch(url,{headers:{Accept:'text/plain,text/calendar,application/json'},signal:ctl.signal});
+    }catch(e){
+      r=await fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url),{signal:ctl.signal});
+    }
     if(!r.ok)throw Error('Live service returned HTTP '+r.status);
     return await r.text();
   }catch(e){
@@ -353,9 +358,8 @@ async function selectAddress(x){
     // GET calendar-url endpoint for properties that already have a verified
     // saved schedule, then read the iCalendar feed. This removes the browser
     // POST/CORS failure that was producing "Failed to fetch".
-    const cal=await getJSON(WB+'/calendar-url?property_id='+encodeURIComponent(property.id));
     const calendarUrl=String(
-      typeof cal==='string'?cal:cal?.calendar_url||cal?.url||''
+      await getText(WB+'/calendar-url?property_id='+encodeURIComponent(property.id))
     ).trim();
 
     if(!calendarUrl)throw Error('No public collection calendar is available for this property yet.');

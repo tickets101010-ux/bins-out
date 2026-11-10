@@ -259,22 +259,62 @@ function bngToWgs84(E,N){
 
 async function resolveGlasgowUPRN(x){
   const address=addressLabel(x),postcode=pc($('#postcode').value);
-  let uprn=String(x?.id||'').trim();
-  if(/^\d{1,12}$/.test(uprn))return uprn;
 
-  const u='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-Address/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(address+', '+postcode)+'&f=json&maxLocations=10&outFields=*';
-  const d=JSON.parse(await getText(u));
-  const rows=Array.isArray(d?.candidates)?d.candidates:[];
-  const norm=s=>String(s||'').toUpperCase().replace(/\bST\b/g,'STREET').replace(/\bRD\b/g,'ROAD').replace(/\bAVE\b/g,'AVENUE').replace(/\bCRES\b/g,'CRESCENT').replace(/\bDR\b/g,'DRIVE').replace(/\bLN\b/g,'LANE').replace(/\bGDNS\b/g,'GARDENS').replace(/\bPL\b/g,'PLACE').replace(/[^A-Z0-9]+/g,' ').trim().replace(/\s+/g,' ');
-  const wanted=norm(address),house=(wanted.match(/^\d+/)||[''])[0];
-  const ranked=rows.map(c=>{
-    const a=norm(c?.address||c?.attributes?.Match_addr||'');
-    const id=String(c?.attributes?.UPRN||c?.attributes?.uprn||c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||'').trim();
-    const score=(house&&a.startsWith(house+' ')?2:0)+(a===wanted?5:0)+(a.includes(wanted.replace(/^\d+\s*/,''))?1:0)+(Number(c?.score||c?.attributes?.Score||0)>=95?1:0);
-    return {a,id,score};
-  }).filter(c=>/^\d{1,12}$/.test(c.id)).sort((a,b)=>b.score-a.score);
-  if(!ranked.length)throw Error('Glasgow could not resolve a UPRN for '+address+'.');
-  return ranked[0].id;
+  // The Glasgow GMS-Address locator gives us the exact property and its
+  // map coordinates, but it does not expose the UPRN as a candidate field.
+  // Resolve the UPRN from those coordinates first, then fall back to
+  // several address-string forms. This avoids relying on a guessed house
+  // number or on the abbreviated WhenIsBins result.
+  const pointCandidates=[];
+  const gx=Number(x?.x),gy=Number(x?.y);
+  if(Number.isFinite(gx)&&Number.isFinite(gy)){
+    pointCandidates.push(
+      'https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/reverseGeocode?location='+encodeURIComponent(gx+','+gy)+'&f=json&outFields=*'
+    );
+  }
+
+  const queries=[
+    address+', '+postcode,
+    address,
+    address.replace(/,\\s*Glasgow.*$/i,'')+', '+postcode,
+    address.replace(/,\\s*Glasgow.*$/i,'')
+  ];
+  for(const q of queries){
+    pointCandidates.push(
+      'https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(q)+'&f=json&maxLocations=10&outFields=*'
+    );
+  }
+
+  const norm=s=>String(s||'').toUpperCase()
+    .replace(/\\bST\\b/g,'STREET').replace(/\\bRD\\b/g,'ROAD')
+    .replace(/\\bAVE\\b/g,'AVENUE').replace(/\\bCRES\\b/g,'CRESCENT')
+    .replace(/\\bDR\\b/g,'DRIVE').replace(/\\bLN\\b/g,'LANE')
+    .replace(/\\bGDNS\\b/g,'GARDENS').replace(/\\bPL\\b/g,'PLACE')
+    .replace(/[^A-Z0-9]+/g,' ').trim().replace(/\\s+/g,' ');
+  const wanted=norm(address),house=(wanted.match(/^\\d+/)||[''])[0];
+
+  for(const u of pointCandidates){
+    try{
+      const d=JSON.parse(await getText(u));
+      const rows=Array.isArray(d?.candidates)?d.candidates:[];
+      const ranked=rows.map(c=>{
+        const a=norm(c?.address||c?.attributes?.Match_addr||c?.attributes?.LOCATOR_DESCRIPTION||'');
+        const id=String(
+          c?.attributes?.UPRN||c?.attributes?.uprn||
+          c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||
+          c?.attributes?.LOCATOR_DESCRIPTION||c?.attributes?.Locator_DESCRIPTION||''
+        ).trim();
+        const score=(a===wanted?6:0)
+          +(house&&a.startsWith(house+' ')?3:0)
+          +(a.includes(wanted.replace(/^\\d+\\s*/,''))?2:0)
+          +(Number(c?.score||c?.attributes?.Score||0)>=90?1:0);
+        return {id,score,address:a};
+      }).filter(c=>/^\\d{8,14}$/.test(c.id)).sort((a,b)=>b.score-a.score);
+      if(ranked.length)return ranked[0].id;
+    }catch(e){}
+  }
+
+  throw Error('Glasgow could not resolve a UPRN for '+address+'.');
 }
 
 async function selectAddress(x){

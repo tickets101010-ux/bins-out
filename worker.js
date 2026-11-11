@@ -113,6 +113,43 @@ export default {async fetch(request, env){
  }
 
  if(u.pathname==="/health"&&request.method==="GET")return json({ok:true,service:"Bins Out connector",addressProvider:"WhenIsBins",legacyProvider:UKBIN},200,h);
+ if(u.pathname==="/glasgow-schedule"&&request.method==="GET"){
+  const postcode=(u.searchParams.get("postcode")||"").trim().toUpperCase();
+  const address=(u.searchParams.get("address")||"").trim();
+  if(!postcode||!address)return json({problem:"invalid_request",detail:"A postcode and selected address are required."},400,h);
+  try{
+    const g=new URL("https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates");
+    g.searchParams.set("SingleLine",address+", "+postcode);g.searchParams.set("f","json");g.searchParams.set("maxLocations","10");
+    const gr=await fetch(g.toString(),{headers:{Accept:"application/json"}});
+    const gd=await gr.json().catch(()=>null);
+    const cs=Array.isArray(gd?.candidates)?gd.candidates:[];
+    const norm=x=>String(x||"").toUpperCase().replace(/[^A-Z0-9]+/g," ").trim().replace(/\s+/g," ");
+    const wanted=norm(address),house=(wanted.match(/^\d+/)||[""])[0];
+    const ranked=cs.map(c=>{
+      const a=norm(c.address||c.attributes?.Match_addr||"");
+      const uprn=String(c.attributes?.UPRN||c.attributes?.uprn||c.attributes?.LOCATOR_ID||c.attributes?.Locator_ID||"").trim();
+      return {...c,_a:a,_uprn:uprn,_score:(house&&a.startsWith(house+" ")?1:0)+(a.includes(wanted.replace(/^\d+\s*/,""))?1:0)};
+    }).filter(c=>/^\d{1,20}$/.test(c._uprn)).sort((a,b)=>b._score-a._score);
+    const best=ranked[0];
+    if(!best||best._score<2)return json({problem:"uprn_not_found",detail:"Glasgow could not match the selected property exactly."},404,h);
+    const cal="https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN="+encodeURIComponent(best._uprn);
+    const cr=await fetch(cal,{headers:{Accept:"text/html"}});
+    if(!cr.ok)return json({problem:"calendar_unavailable",detail:"Glasgow's collection calendar is temporarily unavailable."},502,h);
+    const html=await cr.text();
+    const dates=[];const seen=new Set();
+    const add=iso=>{if(/^\d{4}-\d{2}-\d{2}$/.test(iso)&&!seen.has(iso)){seen.add(iso);dates.push(iso)}};
+    for(const m of html.matchAll(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\b/g)){
+      const d=Number(m[1]),mo=Number(m[2]),y=Number(m[3]);
+      if(d>=1&&d<=31&&mo>=1&&mo<=12)add(y+"-"+String(mo).padStart(2,"0")+"-"+String(d).padStart(2,"0"));
+    }
+    for(const m of html.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g))add(m[1]+"-"+m[2]+"-"+m[3]);
+    dates.sort();
+    if(!dates.length)return json({problem:"no_dates",detail:"Glasgow returned the calendar page but no collection dates could be read."},200,h);
+    return json({status:"done",matched_address:best.address||best.attributes?.Match_addr||address,postcode,council:{id:"S12000049",name:"Glasgow City Council"},uprn:best._uprn,collections:[{name:"Collection",dates}]},200,h);
+  }catch(e){
+    return json({problem:"upstream_unavailable",detail:"Glasgow's address or collection service is temporarily unavailable."},502,h);
+  }
+ }
  if(u.pathname==="/glasgow-calendar"&&request.method==="GET"){
   const uprn=(u.searchParams.get("uprn")||"").trim();if(!/^\d{1,12}$/.test(uprn))return json({problem:"invalid_uprn",detail:"A valid property UPRN is required."},400,h);
   try{return await proxy(`https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN=${encodeURIComponent(uprn)}`,{headers:{"Accept":"text/html"}},h)}catch(e){return json({problem:"upstream_unavailable",detail:"Glasgow City Council calendar is temporarily unavailable."},502,h)}

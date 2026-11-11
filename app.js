@@ -345,31 +345,19 @@ async function selectAddress(x){
 
   try{
     if(current.council?.id==='S12000049'){
-      // Glasgow is deliberately handled entirely from the council services.
-      // No WhenIsBins property-ID call and no Cloudflare connector dependency.
-      const singleLine=encodeURIComponent(current.label+', '+current.postcode);
-      const geocodeUrl='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+singleLine+'&f=json&maxLocations=10&outFields=*';
-      const gd=JSON.parse(await getText(geocodeUrl));
-      const wanted=normAddress(current.label);
-      const house=(wanted.match(/^\d+/)||[''])[0];
-      const candidates=(Array.isArray(gd?.candidates)?gd.candidates:[]).map(c=>{
-        const a=normAddress(c.address||c.attributes?.Match_addr||'');
-        const uprn=String(c.attributes?.UPRN||c.attributes?.uprn||c.attributes?.LOCATOR_ID||c.attributes?.Locator_ID||'').trim();
-        const street=wanted.replace(/^\d+\s*/,'');
-        const score=(house&&a.startsWith(house+' ')?2:0)+(street&&a.includes(street)?2:0);
-        return {c,uprn,score};
-      }).filter(v=>/^\d{1,20}$/.test(v.uprn)).sort((a,b)=>b.score-a.score);
-      const best=candidates[0];
-      if(!best||best.score<4)throw Error('Glasgow could not resolve the exact UPRN for '+current.label+'.');
+      // The address picker already came from Glasgow's GMS-Address service
+      // and its x.id is the UPRN. Do NOT run a second address->UPRN lookup.
+      const uprn=String(x.id||'').trim();
+      if(!/^\d{1,20}$/.test(uprn))throw Error('The selected Glasgow property did not contain a valid UPRN.');
 
-      const calUrl='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(best.uprn);
+      const calUrl='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(uprn);
       const html=await getText(calUrl);
 
-      // Read only concrete dates present in the council calendar.
-      // Nothing is invented or calculated from a generic postcode.
       const dates=[],seen=new Set(),add=iso=>{
         if(/^\d{4}-\d{2}-\d{2}$/.test(iso)&&!seen.has(iso)){seen.add(iso);dates.push(iso)}
       };
+      // Glasgow's calendar is authoritative. Only dates actually present in
+      // the returned council page are accepted.
       for(const m of html.matchAll(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\b/g)){
         const d=Number(m[1]),mo=Number(m[2]),y=Number(m[3]);
         if(d>=1&&d<=31&&mo>=1&&mo<=12)add(y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0'));

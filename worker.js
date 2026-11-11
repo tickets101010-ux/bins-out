@@ -128,24 +128,52 @@ export default {async fetch(request, env){
     const ranked=cs.map(c=>{
       const a=norm(c.address||c.attributes?.Match_addr||"");
       const uprn=String(c.attributes?.UPRN||c.attributes?.uprn||c.attributes?.LOCATOR_ID||c.attributes?.Locator_ID||"").trim();
-      return {...c,_a:a,_uprn:uprn,_score:(house&&a.startsWith(house+" ")?1:0)+(a.includes(wanted.replace(/^\d+\s*/,""))?1:0)};
-    }).filter(c=>/^\d{1,20}$/.test(c._uprn)).sort((a,b)=>b._score-a._score);
+      return {...c,_uprn:uprn,_score:(house&&a.startsWith(house+" ")?1:0)+(a.includes(wanted.replace(/^\d+\s*/,""))?1:0)};
+    }).filter(c=>/^\d{1,20}$/.test(c._uprn)).sort((x,y)=>y._score-x._score);
     const best=ranked[0];
     if(!best||best._score<2)return json({problem:"uprn_not_found",detail:"Glasgow could not match the selected property exactly."},404,h);
+
     const cal="https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN="+encodeURIComponent(best._uprn);
     const cr=await fetch(cal,{headers:{Accept:"text/html"}});
     if(!cr.ok)return json({problem:"calendar_unavailable",detail:"Glasgow's collection calendar is temporarily unavailable."},502,h);
     const html=await cr.text();
-    const dates=[];const seen=new Set();
-    const add=iso=>{if(/^\d{4}-\d{2}-\d{2}$/.test(iso)&&!seen.has(iso)){seen.add(iso);dates.push(iso)}};
-    for(const m of html.matchAll(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\b/g)){
-      const d=Number(m[1]),mo=Number(m[2]),y=Number(m[3]);
-      if(d>=1&&d<=31&&mo>=1&&mo<=12)add(y+"-"+String(mo).padStart(2,"0")+"-"+String(d).padStart(2,"0"));
+
+    // Glasgow's page exposes the next collection for each bin in readable text,
+    // e.g. "Your next Green Bin day is Tuesday 24th November 2026".
+    // Use those statements rather than scraping every numbered calendar cell:
+    // the numbered cells are ordinary calendar dates, not collection dates.
+    const collections=[];
+    const seen=new Set();
+    const months={january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11};
+    const monthRe=Object.keys(months).join("|");
+    const nextRe=new RegExp("Your\\\\s+next\\\\s+([^<\\\\r\\\\n]+?)\\\\s+day\\\\s+is\\\\s+(Today|Tomorrow|(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\\\s+\\\\d{1,2}(?:st|nd|rd|th)?\\\\s+(?:"+monthRe+")\\\\s+\\\\d{4})","gi");
+    for(const m of html.matchAll(nextRe)){
+      const name=String(m[1]).replace(/\\\\s+/g," ").trim();
+      const raw=String(m[2]).trim();
+      let iso=null;
+      if(/^today$/i.test(raw)||/^tomorrow$/i.test(raw)){
+        const d=new Date();
+        if(/^tomorrow$/i.test(raw))d.setUTCDate(d.getUTCDate()+1);
+        iso=d.toISOString().slice(0,10);
+      }else{
+        const p=raw.match(/(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\\\s+(\\\\d{1,2})(?:st|nd|rd|th)?\\\\s+([A-Za-z]+)\\\\s+(\\\\d{4})/i);
+        if(p)iso=p[3]+"-"+String(months[p[2].toLowerCase()]+1).padStart(2,"0")+"-"+String(Number(p[1])).padStart(2,"0");
+      }
+      if(iso&&!seen.has(name+"|"+iso)){seen.add(name+"|"+iso);collections.push({name,date:iso});}
     }
-    for(const m of html.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g))add(m[1]+"-"+m[2]+"-"+m[3]);
-    dates.sort();
-    if(!dates.length)return json({problem:"no_dates",detail:"Glasgow returned the calendar page but no collection dates could be read."},200,h);
-    return json({status:"done",matched_address:best.address||best.attributes?.Match_addr||address,postcode,council:{id:"S12000049",name:"Glasgow City Council"},uprn:best._uprn,collections:[{name:"Collection",dates}]},200,h);
+
+    // If the page has no "Your next..." text, fail honestly rather than
+    // returning all calendar days as collection dates.
+    if(!collections.length)return json({problem:"no_dates",detail:"Glasgow returned the property calendar but no collection dates could be read."},200,h);
+
+    return json({
+      status:"done",
+      matched_address:best.address||best.attributes?.Match_addr||address,
+      postcode,
+      council:{id:"S12000049",name:"Glasgow City Council"},
+      uprn:best._uprn,
+      collections:collections.map(x=>({name:x.name,dates:[x.date]}))
+    },200,h);
   }catch(e){
     return json({problem:"upstream_unavailable",detail:"Glasgow's address or collection service is temporarily unavailable."},502,h);
   }

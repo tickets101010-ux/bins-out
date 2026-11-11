@@ -361,31 +361,16 @@ async function selectAddress(x){
 
   try{
     if(current.council?.id==='S12000049'){
-      // The address picker already came from Glasgow's GMS-Address service
-      // and its x.id is the UPRN. Do NOT run a second address->UPRN lookup.
-      let uprn=String(x.id||'').trim();
-      if(!/^\d{8,20}$/.test(uprn)) uprn=await glasgowResolveUprn(current.label,current.postcode);
-
-      const calUrl='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(uprn);
-      const html=await getText(calUrl);
-
-      const dates=[],seen=new Set(),add=iso=>{
-        if(/^\d{4}-\d{2}-\d{2}$/.test(iso)&&!seen.has(iso)){seen.add(iso);dates.push(iso)}
-      };
-      // Glasgow's calendar is authoritative. Only dates actually present in
-      // the returned council page are accepted.
-      for(const m of html.matchAll(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\b/g)){
-        const d=Number(m[1]),mo=Number(m[2]),y=Number(m[3]);
-        if(d>=1&&d<=31&&mo>=1&&mo<=12)add(y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0'));
-      }
-      for(const m of html.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g))add(m[1]+'-'+m[2]+'-'+m[3]);
-      dates.sort();
-
-      if(!dates.length)throw Error('Glasgow returned the exact property calendar but no collection dates could be read.');
+      // Glasgow is resolved server-side. The browser never has to discover or
+      // interpret the UPRN itself: selected address -> connector -> council.
+      const url=CONNECTOR+'/glasgow-schedule?postcode='+encodeURIComponent(current.postcode)+'&address='+encodeURIComponent(current.label);
+      const r=await getJSON(url);
+      if(r.status!=='done'||!Array.isArray(r.collections)||!r.collections.length)
+        throw Error(r.detail||'Glasgow did not return a collection schedule.');
       renderSchedule({
-        matched_address:current.label,
-        council:{id:'S12000049',name:'Glasgow City Council'},
-        collections:[{name:'Collection',dates}]
+        matched_address:r.matched_address||current.label,
+        council:r.council||current.council,
+        collections:r.collections
       });
       return;
     }

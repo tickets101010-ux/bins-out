@@ -338,6 +338,22 @@ async function findWhenIsBinsProperty(postcode,label){
   return exact;
 }
 
+async function glasgowResolveUprn(label,postcode){
+  const q=String(label||'').trim()+', '+String(postcode||'').trim();
+  const u='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(q)+'&f=json&maxLocations=10&outFields=*';
+  const d=JSON.parse(await getText(u));
+  const rows=Array.isArray(d?.candidates)?d.candidates:[];
+  const want=normAddress(label);
+  const ranked=rows.map(c=>{
+    const a=normAddress(c?.address||c?.attributes?.Match_addr||'');
+    const id=String(c?.attributes?.LOCATOR_ID||c?.attributes?.uprn||c?.attributes?.UPRN||'').trim();
+    const score=(a===want?10:0)+(a.includes(want)?5:0)+Number(c?.score||0)/1000;
+    return {a,id,score};
+  }).filter(v=>/^\d{8,20}$/.test(v.id)).sort((a,b)=>b.score-a.score);
+  if(!ranked[0])throw Error('Glasgow could not resolve a UPRN for '+label+'.');
+  return ranked[0].id;
+}
+
 async function selectAddress(x){
   current={postcode:pc($('#postcode').value),property_id:x.id,label:addressLabel(x),council:x.council||null};
   $('#schedule').classList.add('hidden');
@@ -347,8 +363,8 @@ async function selectAddress(x){
     if(current.council?.id==='S12000049'){
       // The address picker already came from Glasgow's GMS-Address service
       // and its x.id is the UPRN. Do NOT run a second address->UPRN lookup.
-      const uprn=String(x.id||'').trim();
-      if(!/^\d{1,20}$/.test(uprn))throw Error('The selected Glasgow property did not contain a valid UPRN.');
+      let uprn=String(x.id||'').trim();
+      if(!/^\d{8,20}$/.test(uprn)) uprn=await glasgowResolveUprn(current.label,current.postcode);
 
       const calUrl='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(uprn);
       const html=await getText(calUrl);

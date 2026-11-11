@@ -345,22 +345,47 @@ async function selectAddress(x){
 
   try{
     if(current.council?.id==='S12000049'){
-      // Glasgow: use the council's own address -> UPRN -> calendar route.
-      // This avoids the separate WhenIsBins property-ID lookup entirely.
-      const r=await getJSON(CONNECTOR+'/glasgow-schedule?postcode='+
-        encodeURIComponent(current.postcode)+'&address='+encodeURIComponent(current.label));
-      if(!Array.isArray(r.collections)||!r.collections.some(c=>Array.isArray(c.dates)&&c.dates.length)){
-        throw Error(r.detail||'No dated collections were returned for this exact property.');
+      // Glasgow is deliberately handled entirely from the council services.
+      // No WhenIsBins property-ID call and no Cloudflare connector dependency.
+      const singleLine=encodeURIComponent(current.label+', '+current.postcode);
+      const geocodeUrl='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+singleLine+'&f=json&maxLocations=10&outFields=*';
+      const gd=JSON.parse(await getText(geocodeUrl));
+      const wanted=normAddress(current.label);
+      const house=(wanted.match(/^\d+/)||[''])[0];
+      const candidates=(Array.isArray(gd?.candidates)?gd.candidates:[]).map(c=>{
+        const a=normAddress(c.address||c.attributes?.Match_addr||'');
+        const uprn=String(c.attributes?.UPRN||c.attributes?.uprn||c.attributes?.LOCATOR_ID||c.attributes?.Locator_ID||'').trim();
+        const street=wanted.replace(/^\d+\s*/,'');
+        const score=(house&&a.startsWith(house+' ')?2:0)+(street&&a.includes(street)?2:0);
+        return {c,uprn,score};
+      }).filter(v=>/^\d{1,20}$/.test(v.uprn)).sort((a,b)=>b.score-a.score);
+      const best=candidates[0];
+      if(!best||best.score<4)throw Error('Glasgow could not resolve the exact UPRN for '+current.label+'.');
+
+      const calUrl='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(best.uprn);
+      const html=await getText(calUrl);
+
+      // Read only concrete dates present in the council calendar.
+      // Nothing is invented or calculated from a generic postcode.
+      const dates=[],seen=new Set(),add=iso=>{
+        if(/^\d{4}-\d{2}-\d{2}$/.test(iso)&&!seen.has(iso)){seen.add(iso);dates.push(iso)}
+      };
+      for(const m of html.matchAll(/\b(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\b/g)){
+        const d=Number(m[1]),mo=Number(m[2]),y=Number(m[3]);
+        if(d>=1&&d<=31&&mo>=1&&mo<=12)add(y+'-'+String(mo).padStart(2,'0')+'-'+String(d).padStart(2,'0'));
       }
+      for(const m of html.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g))add(m[1]+'-'+m[2]+'-'+m[3]);
+      dates.sort();
+
+      if(!dates.length)throw Error('Glasgow returned the exact property calendar but no collection dates could be read.');
       renderSchedule({
-        matched_address:r.matched_address||current.label,
-        council:r.council||current.council,
-        collections:r.collections
+        matched_address:current.label,
+        council:{id:'S12000049',name:'Glasgow City Council'},
+        collections:[{name:'Collection',dates}]
       });
       return;
     }
 
-    // Other councils continue through the generic collection provider.
     const property=await findWhenIsBinsProperty(current.postcode,current.label);
     current.property_id=property.id;
     let result=await getJSON(CONNECTOR+'/lookups',{

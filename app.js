@@ -97,11 +97,19 @@ async function findAddresses(postcode){
     return d;
   }
 
-  const first=await query();
-
-  // Glasgow's own address gazetteer is the authoritative property list.
-  // Use it instead of the abbreviated WhenIsBins candidate batch.
-  if((council?.id||council?.gss)==='S12000049')return glasgowAddresses(postcode);
+  // Do not make the postcode lookup depend on WhenIsBins being reachable.
+  // Glasgow has its own authoritative address gazetteer, so use that as the
+  // deterministic fallback if the generic provider is unavailable or returns
+  // no usable property list.
+  let first=null;
+  try{
+    first=await query();
+    if((council?.id||council?.gss)==='S12000049')return glasgowAddresses(postcode);
+  }catch(e){
+    try{return await glasgowAddresses(postcode)}catch(g){
+      throw Error('The live address services are unavailable right now.');
+    }
+  }
 
   const opts=first?.input_options;
   const choices=Array.isArray(opts?.options)?opts.options:[];
@@ -121,7 +129,12 @@ async function findAddresses(postcode){
     for(const street of streets)try{await query(street)}catch(e){}
   }
 
-  if(!all.length)throw Error('No properties were returned for that postcode.');
+  if(!all.length){
+    // One final Glasgow-specific fallback covers postcode responses where the
+    // generic provider answered successfully but supplied no candidates.
+    try{return await glasgowAddresses(postcode)}catch(e){}
+    throw Error('No properties were returned for that postcode.');
+  }
   all.sort((a,b)=>{
     const na=parseInt((addressLabel(a).match(/^\d+/)||['999999'])[0],10);
     const nb=parseInt((addressLabel(b).match(/^\d+/)||['999999'])[0],10);

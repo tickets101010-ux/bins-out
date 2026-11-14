@@ -1,4 +1,5 @@
 const KEY='binsout_v2_saved';
+Object.defineProperty(window,'current',{configurable:true,get:()=>current});
 const WB='https://whenisbins.com/v1';
 const CONNECTOR='https://bins-out-connector.tickets101010.workers.dev';
 const ALLOWED=new Set(['S12000049','S12000011']);

@@ -362,13 +362,13 @@ async function selectAddress(x){
 
 async function resolveGlasgowUPRN(x){
   const supplied=String(x?.attrs?.UPRN||x?.attrs?.uprn||'').trim();
-  if(/^\\d{8,20}$/.test(supplied))return supplied;
+  if(/^\d{8,20}$/.test(supplied))return supplied;
 
   const address=addressLabel(x),postcode=current.postcode;
   const queries=[
     address+', '+postcode,
     address,
-    address.replace(/,\\s*Glasgow.*$/i,'')+', '+postcode
+    address.replace(/,\s*Glasgow.*$/i,'')+', '+postcode
   ];
 
   for(const q of queries){
@@ -382,7 +382,7 @@ async function resolveGlasgowUPRN(x){
         const id=String(c?.attributes?.UPRN||c?.attributes?.uprn||c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||'').trim();
         const score=(a===wanted?100:0)+(a.includes(wanted)?50:0)+Number(c?.score||0);
         return {id,score};
-      }).filter(v=>/^\\d{8,20}$/.test(v.id)).sort((a,b)=>b.score-a.score);
+      }).filter(v=>/^\d{8,20}$/.test(v.id)).sort((a,b)=>b.score-a.score);
       if(ranked[0])return ranked[0].id;
     }catch(e){}
   }

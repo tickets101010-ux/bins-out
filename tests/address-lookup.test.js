@@ -12,7 +12,8 @@ test('Glasgow uses the dedicated live schedule worker',()=>{
 });
 test('Glasgow schedule resolver only accepts real UPRN fields',()=>{
   assert.match(worker,/attributes\?\.UPRN\|\|c\.attributes\?\.uprn/);
-  assert.doesNotMatch(worker,/attributes\?\.LOCATOR_ID\|\|c\.attributes\?\.Locator_ID/);
+  assert.match(worker,/GMS-UPRN[\s\S]*attributes\?\.LOCATOR_ID\|\|c\.attributes\?\.Locator_ID/);
+  assert.doesNotMatch(worker,/GMS-Address[\s\S]*attributes\?\.LOCATOR_ID\|\|c\.attributes\?\.Locator_ID/);
 });
 test('Glasgow flat matching normalises a leading Flat label',()=>{
   assert.match(worker,/replace\(\/\^FLAT\\\\s\+/);

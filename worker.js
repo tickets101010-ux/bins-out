@@ -160,8 +160,8 @@ export default {async fetch(request, env){
       for(const q of queries){
         try{
           for(const c of await candidates("GMS-Address",q)){
-            const ca=norm(c.address||c.attributes?.Match_addr||c.attributes?.LOCATOR_DESCRIPTION||"");
-            const id=String(c.attributes?.UPRN||c.attributes?.uprn||c.attributes?.LOCATOR_ID||c.attributes?.Locator_ID||"").trim();
+            const ca=canonical(c.address||c.attributes?.Match_addr||c.attributes?.LOCATOR_DESCRIPTION||"");
+            const id=String(c.attributes?.UPRN||c.attributes?.uprn||"").trim();
             if(!/^\d{8,20}$/.test(id))continue;
             const score=(ca===wanted?8:0)+(house&&ca.startsWith(house+" ")?4:0)+(ca.includes(wanted.replace(/^\d+\s*/,""))?3:0)+Number(c.score||c.attributes?.Score||0)/1000;
             ranked.push({c,id,score,ca});

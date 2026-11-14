@@ -123,7 +123,8 @@ export default {async fetch(request, env){
       .replace(/\bCRES\b/g,"CRESCENT").replace(/\bDR\b/g,"DRIVE").replace(/\bLN\b/g,"LANE")
       .replace(/\bGDNS\b/g,"GARDENS").replace(/\bPL\b/g,"PLACE")
       .replace(/[^A-Z0-9]+/g," ").trim().replace(/\s+/g," ");
-    const wanted=norm(address),house=(wanted.match(/^\d+/)||[""])[0];
+    const canonical=x=>norm(x).replace(/^FLAT\s+/,"");
+    const wanted=canonical(address),house=(wanted.match(/^\d+/)||[""])[0];
 
     async function candidates(service,q){
       const g=new URL("https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/"+service+"/GEOCODESERVICE/GeocodeServer/findAddressCandidates");
@@ -143,8 +144,8 @@ export default {async fetch(request, env){
     for(const q of queries){
       try{
         for(const c of await candidates("GMS-UPRN",q)){
-          const ca=norm(c.address||c.attributes?.Match_addr||c.attributes?.LOCATOR_DESCRIPTION||"");
-          const id=String(c.attributes?.UPRN||c.attributes?.uprn||c.attributes?.LOCATOR_ID||c.attributes?.Locator_ID||"").trim();
+          const ca=canonical(c.address||c.attributes?.Match_addr||c.attributes?.LOCATOR_DESCRIPTION||"");
+          const id=String(c.attributes?.UPRN||c.attributes?.uprn||"").trim();
           if(!/^\d{8,20}$/.test(id))continue;
           const score=(ca===wanted?8:0)+(house&&ca.startsWith(house+" ")?4:0)+(ca.includes(wanted.replace(/^\d+\s*/,""))?3:0)+Number(c.score||c.attributes?.Score||0)/1000;
           ranked.push({c,id,score,ca});

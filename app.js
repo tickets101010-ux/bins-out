@@ -313,7 +313,7 @@ async function selectAddress(x){
   msg('Checking the live collection schedule…');
   try{
     if(current.council?.id==='S12000049'){
-      const uprn=String(x?.attrs?.UPRN||x?.attrs?.uprn||x?.id||'').trim();
+      const uprn=await glasgowResolveUprn(current.label,current.postcode);
       if(!/^\\d{8,20}$/.test(uprn))throw Error('Glasgow did not provide a valid UPRN for the selected property.');
       current.glasgow_uprn=uprn;
 

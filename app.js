@@ -311,22 +311,36 @@ async function selectAddress(x){
   current={postcode:pc($('#postcode').value),property_id:x.id,label:addressLabel(x),council:x.council||null};
   $('#schedule').classList.add('hidden');
   msg('Checking the live collection schedule…');
-
   try{
     if(current.council?.id==='S12000049'){
-      // Glasgow's public calendar is UPRN-based. Do not send the selected
-      // address through the old connector lookup: that was the Glasgow
-      // failure point. Resolve the exact property to a Glasgow UPRN, then
-      // read the council's live calendar directly.
-      const uprn=await resolveGlasgowUPRN(x);
+      const uprn=String(x?.attrs?.UPRN||x?.attrs?.uprn||x?.id||'').trim();
+      if(!/^\\d{8,20}$/.test(uprn))throw Error('Glasgow did not provide a valid UPRN for the selected property.');
       current.glasgow_uprn=uprn;
 
+      // Primary Glasgow route: UK Bin Day's free UPRN API. It returns
+      // structured dates and bin names, avoiding brittle HTML parsing.
+      try{
+        const api='https://ukbinday.co.uk/api/v2/S12000049/view/'+encodeURIComponent(uprn)+'?postcode='+encodeURIComponent(current.postcode)+'&address='+encodeURIComponent(current.label);
+        const d=await getJSON(api);
+        const dates=Array.isArray(d?.dates)?d.dates:[];
+        if(dates.length){
+          renderSchedule({
+            matched_address:current.label,
+            council:{id:'S12000049',name:'Glasgow City Council'},
+            collections:dates.map(v=>({
+              name:v?.bin_type||v?.type||v?.name||v?.bin||'Collection',
+              dates:[v?.date||v?.collection_date||v]
+            }))
+          });
+          return;
+        }
+      }catch(apiError){}
+
+      // Fallback: Glasgow Council's own live calendar.
       const calendarUrl='https://onlineservices.glasgow.gov.uk/forms/refuseandrecyclingcalendar/CollectionsCalendar.aspx?UPRN='+encodeURIComponent(uprn);
       const html=await fetchText(calendarUrl);
       const collections=parseGlasgowCalendar(html);
-
       if(!collections.length)throw Error('Glasgow Council returned no dated collections for this property.');
-
       renderSchedule({
         matched_address:current.label,
         council:{id:'S12000049',name:'Glasgow City Council'},
@@ -359,37 +373,6 @@ async function selectAddress(x){
     msg(esc(e.message)+'<br><small>No collection date has been invented.</small>','error');
   }
 }
-
-async function resolveGlasgowUPRN(x){
-  const supplied=String(x?.attrs?.UPRN||x?.attrs?.uprn||'').trim();
-  if(/^\d{8,20}$/.test(supplied))return supplied;
-
-  const address=addressLabel(x),postcode=current.postcode;
-  const queries=[
-    address+', '+postcode,
-    address,
-    address.replace(/,\s*Glasgow.*$/i,'')+', '+postcode
-  ];
-
-  for(const q of queries){
-    const u='https://www.mapping.glasgow.gov.uk/locatorhub/arcgis/rest/services/GMS-UPRN/GEOCODESERVICE/GeocodeServer/findAddressCandidates?SingleLine='+encodeURIComponent(q)+'&f=json&maxLocations=10&outFields=*';
-    try{
-      const d=JSON.parse(await getText(u));
-      const rows=Array.isArray(d?.candidates)?d.candidates:[];
-      const wanted=normAddress(address);
-      const ranked=rows.map(c=>{
-        const a=normAddress(c?.address||c?.attributes?.Match_addr||c?.attributes?.LOCATOR_DESCRIPTION||'');
-        const id=String(c?.attributes?.UPRN||c?.attributes?.uprn||c?.attributes?.LOCATOR_ID||c?.attributes?.Locator_ID||'').trim();
-        const score=(a===wanted?100:0)+(a.includes(wanted)?50:0)+Number(c?.score||0);
-        return {id,score};
-      }).filter(v=>/^\d{8,20}$/.test(v.id)).sort((a,b)=>b.score-a.score);
-      if(ranked[0])return ranked[0].id;
-    }catch(e){}
-  }
-
-  throw Error('Glasgow could not resolve the selected property to a UPRN.');
-}
-
 function renderSchedule(r){
   const bins=[];
   for(const c of (Array.isArray(r?.collections)?r.collections:[])){

@@ -3,7 +3,7 @@ Object.defineProperty(window,'current',{configurable:true,get:()=>current});
 const WB='https://whenisbins.com/v1';
 const CONNECTOR='https://bins-out-connector.tickets101010.workers.dev';
 const ALLOWED=new Set(['S12000049','S12000011']);
-let current=null,deferred=null;
+let current=null,deferred=null,selectionSeq=0;
 
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -309,21 +309,26 @@ async function glasgowResolveUprn(label,postcode){
 }
 
 async function selectAddress(x){
+  const seq=++selectionSeq;
   current={postcode:pc($('#postcode').value),property_id:x.id,label:addressLabel(x),council:x.council||null};
   $('#schedule').classList.add('hidden');
   msg('Checking the live collection schedule…');
+  const stale=()=>seq!==selectionSeq;
   try{
+    if(stale())return;
     if(current.council?.id==='S12000049'){
       // Glasgow has a dedicated resolver in the Cloudflare worker. Keep ALL
       // Glasgow UPRN resolution + council-calendar parsing there so the browser
       // does not have to guess which locator field is the real UPRN.
       const u=CONNECTOR+'/glasgow-schedule?postcode='+encodeURIComponent(current.postcode)+'&address='+encodeURIComponent(current.label);
       const r=await getJSON(u);
+      if(stale())return;
       if(r.problem)throw Error(r.detail||'Glasgow did not return a collection schedule.');
       if(r.uprn)current.glasgow_uprn=String(r.uprn);
       if(!Array.isArray(r.collections)||!r.collections.some(c=>Array.isArray(c.dates)&&c.dates.length)){
         throw Error('Glasgow returned the property but no dated collections.');
       }
+      if(stale())return;
       renderSchedule({
         matched_address:r.matched_address||current.label,
         council:r.council||{id:'S12000049',name:'Glasgow City Council'},
@@ -332,27 +337,35 @@ async function selectAddress(x){
       return;
     }
 
+    if(stale())return;
     const property=await findWhenIsBinsProperty(current.postcode,current.label);
+    if(stale())return;
     current.property_id=property.id;
     let result=await getJSON(CONNECTOR+'/lookups',{
       method:'POST',
       headers:{'Content-Type':'application/json','Idempotency-Key':crypto.randomUUID()},
       body:JSON.stringify({postcode:current.postcode,property_id:property.id})
     });
+    if(stale())return;
     let rounds=0;
     while(['queued','running','partial'].includes(result.status)&&result.id&&rounds<24){
       const rr=result.result,hasDates=Array.isArray(rr?.collections)&&rr.collections.some(c=>Array.isArray(c.dates)&&c.dates.length);
       if(result.status==='partial'&&rr?.provisional!==true&&rr?.address_match!=='postcode_representative'&&hasDates)break;
       await new Promise(resolve=>setTimeout(resolve,Math.max(5,Number(result.retry_after_seconds||5))*1000));
-      result=await getJSON(CONNECTOR+'/status?id='+encodeURIComponent(result.id)); rounds++;
+      result=await getJSON(CONNECTOR+'/status?id='+encodeURIComponent(result.id));
+      if(stale())return;
+      rounds++;
     }
+    if(stale())return;
     if(!['done','partial'].includes(result.status))throw Error(result.detail||result.problem||'The live collection lookup did not complete.');
     const rr=result.result||{};
     if(rr.provisional===true||rr.address_match==='postcode_representative')throw Error('The live service returned a provisional neighbouring-property result, not an exact house.');
     const collections=Array.isArray(rr.collections)?rr.collections:[];
     if(!collections.some(c=>Array.isArray(c.dates)&&c.dates.length))throw Error(rr.detail||'No dated collections were returned for this exact property.');
+    if(stale())return;
     renderSchedule({matched_address:rr.matched_address||current.label,council:rr.council||current.council,collections});
   }catch(e){
+    if(stale())return;
     msg(esc(e.message)+'<br><small>No collection date has been invented.</small>','error');
   }
 }

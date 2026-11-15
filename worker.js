@@ -182,10 +182,22 @@ export default {async fetch(request, env){
 
     const collections=[],seen=new Set();
     const months={january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11};
-    const monthRe=Object.keys(months).join("|");
-    const nextRe=/Your\s+next\s+([^<\r\n]+?)\s+day\s+is\s+(Today|Tomorrow|(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})/gi;
-    for(const m of html.matchAll(nextRe)){
-      const name=String(m[1]).replace(/\s+/g," ").trim();
+
+    // Glasgow returns the calendar as HTML. Do not regex the raw markup:
+    // tags can sit between "next", the bin name and the date.
+    const plain=html
+      .replace(/<br\\s*\\/?\\s*>/gi," ")
+      .replace(/<\\/p\\s*>/gi," ")
+      .replace(/<[^>]+>/g," ")
+      .replace(/&nbsp;/gi," ")
+      .replace(/&amp;/gi,"&")
+      .replace(/\\s+/g," ")
+      .trim();
+
+    const nextRe=/Your\\s+next\\s+(.+?)\\s+day\\s+is\\s+(Today|Tomorrow|(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+\\d{1,2}(?:st|nd|rd|th)?\\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{4})/gi;
+
+    for(const m of plain.matchAll(nextRe)){
+      const name=String(m[1]).replace(/\\s+/g," ").trim();
       const raw=String(m[2]).trim();
       let iso=null;
       if(/^today$/i.test(raw)||/^tomorrow$/i.test(raw)){
@@ -193,10 +205,16 @@ export default {async fetch(request, env){
         if(/^tomorrow$/i.test(raw))d.setUTCDate(d.getUTCDate()+1);
         iso=d.toISOString().slice(0,10);
       }else{
-        const p=raw.match(/(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})/i);
-        if(p)iso=p[3]+"-"+String(months[p[2].toLowerCase()]+1).padStart(2,"0")+"-"+String(Number(p[1])).padStart(2,"0");
+        const p=raw.match(/(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s+([A-Za-z]+)\\s+(\\d{4})/i);
+        if(p){
+          const month=months[p[2].toLowerCase()];
+          if(month!==undefined)iso=p[3]+"-"+String(month+1).padStart(2,"0")+"-"+String(Number(p[1])).padStart(2,"0");
+        }
       }
-      if(iso&&!seen.has(name+"|"+iso)){seen.add(name+"|"+iso);collections.push({name,date:iso});}
+      if(iso&&!seen.has(name+"|"+iso)){
+        seen.add(name+"|"+iso);
+        collections.push({name,date:iso});
+      }
     }
 
     if(!collections.length)return json({problem:"no_dates",detail:"Glasgow returned the property calendar but no collection dates could be read."},200,h);
